@@ -1,4 +1,6 @@
 import { Product, Order, StoreSettings, CategoryItem } from '../types';
+import { db } from '../lib/firebase';
+import { collection, getDocs, doc, setDoc, getDoc, writeBatch } from 'firebase/firestore';
 
 const PRODUCTS_KEY = 'stock_jahani_products_v1';
 const ORDERS_KEY = 'stock_jahani_orders_v1';
@@ -110,23 +112,41 @@ export function getStoredProducts(): Product[] {
   }
 }
 
-export function saveStoredProducts(products: Product[]): Promise<boolean> {
+export async function saveStoredProducts(products: Product[]): Promise<boolean> {
   try {
     localStorage.setItem(PRODUCTS_KEY, JSON.stringify(products));
   } catch (err) {
     console.error('Error saving products locally:', err);
   }
-  // Sync to backend server
-  return fetch('/api/products', {
+
+  try {
+    const existingSnap = await getDocs(collection(db, 'products'));
+    const currentIds = new Set(products.map((p) => p.id));
+    const batch = writeBatch(db);
+
+    existingSnap.forEach((docSnap) => {
+      if (!currentIds.has(docSnap.id)) {
+        batch.delete(docSnap.ref);
+      }
+    });
+
+    products.forEach((p) => {
+      batch.set(doc(db, 'products', p.id), p);
+    });
+
+    await batch.commit();
+  } catch (err) {
+    console.warn('Firestore products save error:', err);
+  }
+
+  // Also sync to backend server API if available
+  fetch('/api/products', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ products }),
-  })
-    .then((res) => res.ok)
-    .catch((e) => {
-      console.warn('Failed to sync products to server:', e);
-      return false;
-    });
+  }).catch(() => {});
+
+  return true;
 }
 
 export function getStoredOrders(): Order[] {
@@ -140,23 +160,41 @@ export function getStoredOrders(): Order[] {
   }
 }
 
-export function saveStoredOrders(orders: Order[]): Promise<boolean> {
+export async function saveStoredOrders(orders: Order[]): Promise<boolean> {
   try {
     localStorage.setItem(ORDERS_KEY, JSON.stringify(orders));
   } catch (err) {
     console.error('Error saving orders:', err);
   }
-  // Sync to backend server
-  return fetch('/api/orders', {
+
+  try {
+    const existingSnap = await getDocs(collection(db, 'orders'));
+    const currentIds = new Set(orders.map((o) => o.id));
+    const batch = writeBatch(db);
+
+    existingSnap.forEach((docSnap) => {
+      if (!currentIds.has(docSnap.id)) {
+        batch.delete(docSnap.ref);
+      }
+    });
+
+    orders.forEach((o) => {
+      batch.set(doc(db, 'orders', o.id), o);
+    });
+
+    await batch.commit();
+  } catch (err) {
+    console.warn('Firestore orders save error:', err);
+  }
+
+  // Also sync to backend server API if available
+  fetch('/api/orders', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ orders }),
-  })
-    .then((res) => res.ok)
-    .catch((e) => {
-      console.warn('Failed to sync orders to server:', e);
-      return false;
-    });
+  }).catch(() => {});
+
+  return true;
 }
 
 export function getStoredSettings(): StoreSettings {
@@ -178,43 +216,83 @@ export function getStoredSettings(): StoreSettings {
   }
 }
 
-export function saveStoredSettings(settings: StoreSettings): Promise<boolean> {
+export async function saveStoredSettings(settings: StoreSettings): Promise<boolean> {
   try {
     localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings));
   } catch (err) {
     console.error('Error saving settings:', err);
   }
-  // Sync to backend server
-  return fetch('/api/settings', {
+
+  try {
+    await setDoc(doc(db, 'settings', 'store_settings'), settings);
+  } catch (err) {
+    console.warn('Firestore settings save error:', err);
+  }
+
+  // Also sync to backend server API if available
+  fetch('/api/settings', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ settings }),
-  })
-    .then((res) => res.ok)
-    .catch((e) => {
-      console.warn('Failed to sync settings to server:', e);
-      return false;
-    });
+  }).catch(() => {});
+
+  return true;
 }
 
-// Fetch all shared data from server
+// Fetch all shared data from Firebase Firestore
 export async function fetchServerData(): Promise<{ products: Product[]; orders: Order[]; settings: StoreSettings } | null> {
   try {
-    const res = await fetch('/api/data?t=' + Date.now());
-    if (!res.ok) return null;
-    const data = await res.json();
-    if (data.products && Array.isArray(data.products)) {
-      try { localStorage.setItem(PRODUCTS_KEY, JSON.stringify(data.products)); } catch (e) {}
+    // 1. Fetch products from Firestore
+    const productsSnap = await getDocs(collection(db, 'products'));
+    let products: Product[] = [];
+    productsSnap.forEach((docSnap) => {
+      products.push(docSnap.data() as Product);
+    });
+
+    // Seed default products if database is empty on first load
+    if (products.length === 0) {
+      const initial = DEMO_PRODUCTS;
+      const batch = writeBatch(db);
+      initial.forEach((p) => {
+        batch.set(doc(db, 'products', p.id), p);
+      });
+      await batch.commit();
+      products = initial;
     }
-    if (data.orders && Array.isArray(data.orders)) {
-      try { localStorage.setItem(ORDERS_KEY, JSON.stringify(data.orders)); } catch (e) {}
+
+    // 2. Fetch orders from Firestore
+    const ordersSnap = await getDocs(collection(db, 'orders'));
+    let orders: Order[] = [];
+    ordersSnap.forEach((docSnap) => {
+      orders.push(docSnap.data() as Order);
+    });
+
+    // 3. Fetch settings from Firestore
+    const settingsDoc = await getDoc(doc(db, 'settings', 'store_settings'));
+    let settings: StoreSettings = DEFAULT_SETTINGS;
+    if (settingsDoc.exists()) {
+      settings = { ...DEFAULT_SETTINGS, ...settingsDoc.data() } as StoreSettings;
+    } else {
+      await setDoc(doc(db, 'settings', 'store_settings'), DEFAULT_SETTINGS);
     }
-    if (data.settings && typeof data.settings === 'object') {
-      try { localStorage.setItem(SETTINGS_KEY, JSON.stringify(data.settings)); } catch (e) {}
-    }
-    return data;
+
+    // Cache in localStorage
+    try {
+      localStorage.setItem(PRODUCTS_KEY, JSON.stringify(products));
+      localStorage.setItem(ORDERS_KEY, JSON.stringify(orders));
+      localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings));
+    } catch (e) {}
+
+    return { products, orders, settings };
   } catch (err) {
-    console.warn('Server fetch failed, falling back to local cache:', err);
+    console.warn('Firestore fetch failed, checking server API or local cache:', err);
+    try {
+      const res = await fetch('/api/data?t=' + Date.now());
+      if (res.ok) {
+        const data = await res.json();
+        return data;
+      }
+    } catch (e) {}
     return null;
   }
 }
