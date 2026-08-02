@@ -4,17 +4,12 @@ import {
   ShoppingBag, 
   Settings, 
   Store, 
-  Copy, 
-  Check, 
   Search, 
   Sparkles,
-  Link2,
-  ExternalLink,
   ShieldCheck,
   Menu,
   X,
   Truck,
-  UserCheck
 } from 'lucide-react';
 import { CategoryType, StoreSettings } from '../types';
 import { DEFAULT_CATEGORIES } from '../utils/storage';
@@ -53,8 +48,6 @@ export const Header: React.FC<HeaderProps> = ({
   isAdminAuthenticated,
   onAdminLogout,
 }) => {
-  const [showShareModal, setShowShareModal] = useState(false);
-  const [copiedLink, setCopiedLink] = useState<'dev' | 'store' | 'admin' | null>(null);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
 
   const activeCategories = settings?.categories && settings.categories.length > 0 
@@ -66,111 +59,51 @@ export const Header: React.FC<HeaderProps> = ({
     ...activeCategories,
   ];
 
-  const getDevUrl = () => {
-    return window.location.origin;
-  };
-
-  const getStoreUrl = () => {
-    let origin = window.location.origin;
-    if (origin.includes('ais-dev-')) {
-      origin = origin.replace('ais-dev-', 'ais-pre-');
-    }
-    return origin;
-  };
-
-  const getAdminUrl = () => {
-    let origin = window.location.origin;
-    return `${origin}?view=admin`;
-  };
-
-  const copyToClipboard = (type: 'dev' | 'store' | 'admin') => {
-    let url = getStoreUrl();
-    if (type === 'dev') url = getDevUrl();
-    if (type === 'admin') url = getAdminUrl();
-    
-    if (navigator.clipboard && window.isSecureContext) {
-      navigator.clipboard.writeText(url).catch(() => {
-        fallbackCopyTextToClipboard(url);
-      });
-    } else {
-      fallbackCopyTextToClipboard(url);
-    }
-
-    setCopiedLink(type);
-    onShowToast(type === 'dev' ? 'لینک توسعه کپی شد' : type === 'store' ? 'لینک عمومی فروشگاه کپی شد' : 'لینک پنل مدیریت کپی شد');
-    setTimeout(() => setCopiedLink(null), 2500);
-  };
-
-  const fallbackCopyTextToClipboard = (text: string) => {
-    const textArea = document.createElement("textarea");
-    textArea.value = text;
-    textArea.style.position = "fixed";
-    textArea.style.left = "-999999px";
-    textArea.style.top = "-999999px";
-    document.body.appendChild(textArea);
-    textArea.focus();
-    textArea.select();
-    try {
-      document.execCommand('copy');
-    } catch (err) {
-      console.error('Fallback copy failed', err);
-    }
-    document.body.removeChild(textArea);
-  };
-
-  const shareNative = async (type: 'store' | 'admin') => {
-    const url = type === 'store' ? getStoreUrl() : getAdminUrl();
-    const title = type === 'store' ? settings.storeName : `پنل مدیریت - ${settings.storeName}`;
-    const text = type === 'store' ? 'لینک مشاهده محصولات و ثبت سفارش عینک' : 'لینک مدیریت فروشگاه عینک';
-
-    if (navigator.share) {
-      try {
-        await navigator.share({ title, text, url });
-        return;
-      } catch (e) {
-        console.log('Share canceled or failed', e);
-      }
-    }
-    // Fallback: Copy to clipboard
-    copyToClipboard(type);
-  };
-
   return (
     <header className="sticky top-0 z-40 bg-zinc-950/90 backdrop-blur-md border-b border-zinc-800/80">
       {/* Top Announcement & Quick Action Bar */}
       <div className="bg-gradient-to-r from-amber-500/10 via-amber-500/20 to-amber-500/10 border-b border-amber-500/20 py-1.5 px-3 sm:px-4 text-xs">
         <div className="max-w-7xl mx-auto flex items-center justify-between gap-2">
           <div className="flex items-center gap-2 text-amber-300 font-medium overflow-hidden whitespace-nowrap text-[11px] sm:text-xs">
-            <Sparkles className="w-3.5 h-3.5 shrink-0 animate-pulse text-amber-400" />
+            <motion.div
+              animate={{ scale: [1, 1.2, 1], rotate: [0, 10, -10, 0] }}
+              transition={{ repeat: Infinity, duration: 3, ease: 'easeInOut' }}
+            >
+              <Sparkles className="w-3.5 h-3.5 shrink-0 text-amber-400" />
+            </motion.div>
             <span className="truncate">{settings.tagline}</span>
           </div>
 
           <div className="flex items-center gap-1.5 shrink-0">
-            <button
+            <motion.button
+              whileHover={{ scale: 1.05 }}
+              whileTap={{ scale: 0.95 }}
               onClick={() => onViewChange(currentView === 'store' ? 'admin' : 'store')}
-              className="flex items-center gap-1 bg-zinc-800 hover:bg-zinc-700 text-zinc-200 px-2.5 py-1 rounded-full text-[10px] sm:text-[11px] transition-colors border border-zinc-700"
+              className="group flex items-center gap-1 bg-zinc-800 hover:bg-zinc-700 text-zinc-200 px-2.5 py-1 rounded-full text-[10px] sm:text-[11px] transition-colors border border-zinc-700"
             >
               {currentView === 'store' ? (
                 <>
-                  <Settings className="w-3 h-3 text-amber-400" />
+                  <Settings className="w-3 h-3 text-amber-400 group-hover:rotate-90 transition-transform duration-300" />
                   <span>پنل مدیریت</span>
                 </>
               ) : (
                 <>
-                  <Store className="w-3 h-3 text-emerald-400" />
+                  <Store className="w-3 h-3 text-emerald-400 group-hover:scale-110 transition-transform" />
                   <span>ویترین فروشگاه</span>
                 </>
               )}
-            </button>
+            </motion.button>
 
             {isAdminAuthenticated && onAdminLogout && (
-              <button
+              <motion.button
+                whileHover={{ scale: 1.05 }}
+                whileTap={{ scale: 0.95 }}
                 onClick={onAdminLogout}
                 className="flex items-center gap-1 bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 border border-rose-500/30 px-2 py-0.5 rounded-full text-[10px] sm:text-[11px] transition-colors"
                 title="خروج از حساب ادمین"
               >
                 <span>خروج ادمین</span>
-              </button>
+              </motion.button>
             )}
           </div>
         </div>
@@ -186,16 +119,20 @@ export const Header: React.FC<HeaderProps> = ({
               onClick={() => { onViewChange('store'); onSelectCategory('all'); }} 
               className="flex items-center gap-2 sm:gap-3 group text-right focus:outline-none"
             >
-              <div className="relative flex items-center justify-center w-9 h-9 sm:w-11 sm:h-11 rounded-xl sm:rounded-2xl bg-gradient-to-br from-amber-400 to-amber-600 text-zinc-950 shadow-lg shadow-amber-500/20 group-hover:scale-105 transition-transform duration-300">
-                <Glasses className="w-5 h-5 sm:w-6 sm:h-6 stroke-[2.2]" />
+              <motion.div 
+                whileHover={{ rotate: [-2, 4, -2], scale: 1.08 }}
+                transition={{ duration: 0.3 }}
+                className="relative flex items-center justify-center w-9 h-9 sm:w-11 sm:h-11 rounded-xl sm:rounded-2xl bg-gradient-to-br from-amber-400 to-amber-600 text-zinc-950 shadow-lg shadow-amber-500/20"
+              >
+                <Glasses className="w-5 h-5 sm:w-6 sm:h-6 stroke-[2.2] group-hover:scale-110 transition-transform duration-300" />
                 <span className="absolute -bottom-1 -right-1 flex h-3 w-3 sm:h-3.5 sm:w-3.5 items-center justify-center rounded-full bg-emerald-500 ring-2 ring-zinc-950">
-                  <span className="h-1 sm:h-1.5 w-1 sm:w-1.5 rounded-full bg-white"></span>
+                  <span className="h-1 sm:h-1.5 w-1 sm:w-1.5 rounded-full bg-white animate-ping"></span>
                 </span>
-              </div>
+              </motion.div>
               <div>
                 <h1 className="text-base sm:text-xl font-black tracking-tight text-white flex items-center gap-1.5">
                   <span className="hidden xs:inline">فروشگاه</span>
-                  <span className="text-amber-400 font-mono tracking-wider">{settings.storeName}</span>
+                  <span className="text-amber-400 font-mono tracking-wider group-hover:text-amber-300 transition-colors">{settings.storeName}</span>
                 </h1>
                 <p className="text-[10px] sm:text-[11px] text-zinc-400 font-light hidden xs:block">ارائه‌دهنده عینک‌های اورجینال استوک</p>
               </div>
@@ -204,8 +141,8 @@ export const Header: React.FC<HeaderProps> = ({
 
           {/* Center Search Input (Desktop) */}
           <div className="hidden md:flex flex-1 max-w-md mx-4">
-            <div className="relative w-full">
-              <Search className="absolute right-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-zinc-400" />
+            <div className="relative w-full group">
+              <Search className="absolute right-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-zinc-400 group-focus-within:text-amber-400 group-focus-within:scale-110 transition-all duration-300" />
               <input
                 type="text"
                 value={searchQuery}
@@ -216,7 +153,7 @@ export const Header: React.FC<HeaderProps> = ({
               {searchQuery && (
                 <button
                   onClick={() => onSearchChange('')}
-                  className="absolute left-3 top-1/2 -translate-y-1/2 text-xs text-zinc-500 hover:text-zinc-300 bg-zinc-800 rounded-full w-4 h-4 flex items-center justify-center"
+                  className="absolute left-3 top-1/2 -translate-y-1/2 text-xs text-zinc-500 hover:text-zinc-300 bg-zinc-800 hover:bg-zinc-700 rounded-full w-4 h-4 flex items-center justify-center transition-transform hover:scale-110"
                 >
                   ✕
                 </button>
@@ -228,56 +165,59 @@ export const Header: React.FC<HeaderProps> = ({
           <div className="flex items-center gap-1.5 sm:gap-2.5">
             {/* Customer Order Tracker Button */}
             {onOpenTrackerModal && (
-              <button
+              <motion.button
+                whileHover={{ scale: 1.04 }}
+                whileTap={{ scale: 0.96 }}
                 onClick={onOpenTrackerModal}
-                className="flex items-center gap-1.5 bg-zinc-900 hover:bg-zinc-800 text-amber-400 border border-zinc-800 px-2.5 py-1.5 sm:px-3 sm:py-2 rounded-xl text-xs font-bold transition-colors"
+                className="group flex items-center gap-1.5 bg-zinc-900 hover:bg-zinc-800 text-amber-400 border border-zinc-800 px-2.5 py-1.5 sm:px-3 sm:py-2 rounded-xl text-xs font-bold transition-all shadow-sm"
                 title="پیگیری سفارش و دریافت کد پستی"
               >
-                <Truck className="w-4 h-4 text-amber-400 shrink-0" />
+                <Truck className="w-4 h-4 text-amber-400 shrink-0 group-hover:translate-x-1 transition-transform duration-300" />
                 <span className="hidden lg:inline">پیگیری سفارشات / ورود خریدار</span>
                 <span className="hidden sm:inline lg:hidden text-[11px]">پیگیری</span>
-              </button>
+              </motion.button>
             )}
 
             {/* View Switch Pill (Desktop/Tablet) */}
             <div className="hidden sm:flex bg-zinc-900 p-1 rounded-xl border border-zinc-800/80">
               <button
                 onClick={() => onViewChange('store')}
-                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-all ${
+                className={`group flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-all ${
                   currentView === 'store'
                     ? 'bg-amber-500 text-zinc-950 font-bold shadow-md shadow-amber-500/20'
                     : 'text-zinc-400 hover:text-zinc-200'
                 }`}
               >
-                <Store className="w-3.5 h-3.5" />
+                <Store className="w-3.5 h-3.5 group-hover:scale-110 transition-transform" />
                 <span>فروشگاه</span>
               </button>
               <button
                 onClick={() => onViewChange('admin')}
-                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-all ${
+                className={`group flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-all ${
                   currentView === 'admin'
                     ? 'bg-amber-500 text-zinc-950 font-bold shadow-md shadow-amber-500/20'
                     : 'text-zinc-400 hover:text-zinc-200'
                 }`}
               >
-                <ShieldCheck className="w-3.5 h-3.5" />
+                <ShieldCheck className="w-3.5 h-3.5 group-hover:scale-110 transition-transform" />
                 <span>پنل مدیریت</span>
               </button>
             </div>
 
             {/* Shopping Cart Button */}
             <motion.button
-              whileHover={{ scale: 1.05 }}
+              whileHover={{ scale: 1.05, y: -1 }}
               whileTap={{ scale: 0.95 }}
               onClick={onOpenCart}
-              className="relative flex items-center gap-1.5 sm:gap-2 bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 text-zinc-950 font-bold px-3 py-1.5 sm:px-4 sm:py-2 rounded-xl text-xs sm:text-sm transition-all shadow-lg shadow-amber-500/15"
+              className="group relative flex items-center gap-1.5 sm:gap-2 bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 text-zinc-950 font-bold px-3 py-1.5 sm:px-4 sm:py-2 rounded-xl text-xs sm:text-sm transition-all shadow-lg shadow-amber-500/15"
             >
-              <ShoppingBag className="w-4 h-4 stroke-[2.5]" />
+              <ShoppingBag className="w-4 h-4 stroke-[2.5] group-hover:-rotate-12 group-hover:scale-110 transition-transform duration-300" />
               <span className="hidden sm:inline">سبد خرید</span>
               {cartCount > 0 && (
                 <motion.span
                   initial={{ scale: 0 }}
-                  animate={{ scale: 1 }}
+                  animate={{ scale: [1, 1.25, 1] }}
+                  transition={{ duration: 0.3 }}
                   className="bg-zinc-950 text-amber-400 text-[11px] sm:text-xs font-extrabold px-1.5 sm:px-2 py-0.5 rounded-full border border-amber-400/30"
                 >
                   {cartCount}
@@ -286,20 +226,21 @@ export const Header: React.FC<HeaderProps> = ({
             </motion.button>
 
             {/* Mobile Hamburger Menu Toggle */}
-            <button
+            <motion.button
+              whileTap={{ scale: 0.9 }}
               onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
               className="sm:hidden p-2 text-zinc-300 hover:text-white bg-zinc-900 border border-zinc-800 rounded-xl"
               aria-label="منوی موبایل"
             >
               {mobileMenuOpen ? <X className="w-5 h-5 text-amber-400" /> : <Menu className="w-5 h-5" />}
-            </button>
+            </motion.button>
           </div>
         </div>
 
         {/* Mobile Search Input */}
         <div className="mt-2.5 md:hidden">
-          <div className="relative w-full">
-            <Search className="absolute right-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-zinc-400" />
+          <div className="relative w-full group">
+            <Search className="absolute right-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-zinc-400 group-focus-within:text-amber-400 transition-colors" />
             <input
               type="text"
               value={searchQuery}
@@ -357,17 +298,6 @@ export const Header: React.FC<HeaderProps> = ({
                   <span className="text-[10px] bg-amber-500/10 px-2 py-0.5 rounded-md border border-amber-500/20">ورود خریدار</span>
                 </button>
               )}
-
-              <button
-                onClick={() => { setShowShareModal(true); setMobileMenuOpen(false); }}
-                className="w-full flex items-center justify-between bg-zinc-900 text-sky-400 border border-zinc-800 p-2.5 rounded-xl text-xs font-bold transition-colors"
-              >
-                <div className="flex items-center gap-2">
-                  <Link2 className="w-4 h-4" />
-                  <span>لینک‌های اختصاصی و آدرس عمومی</span>
-                </div>
-                <span className="text-[10px] bg-sky-500/10 px-2 py-0.5 rounded-md border border-sky-500/20">کپی لینک</span>
-              </button>
             </motion.div>
           )}
         </AnimatePresence>
@@ -381,6 +311,7 @@ export const Header: React.FC<HeaderProps> = ({
                 <motion.button
                   key={cat.id}
                   whileTap={{ scale: 0.95 }}
+                  whileHover={{ scale: 1.04 }}
                   onClick={() => onSelectCategory(cat.id)}
                   className={`relative shrink-0 px-3 py-1.5 sm:px-3.5 sm:py-1.5 rounded-xl text-[11px] sm:text-xs font-medium transition-colors ${
                     isSelected
@@ -406,3 +337,4 @@ export const Header: React.FC<HeaderProps> = ({
     </header>
   );
 };
+

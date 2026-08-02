@@ -181,9 +181,10 @@ export const ProductCard: React.FC<ProductCardProps> = ({
 
           <motion.button
             whileTap={{ scale: 0.93 }}
+            whileHover={{ scale: 1.05 }}
             onClick={handleAddToCart}
             disabled={product.stock <= 0}
-            className={`flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-bold transition-all shadow-md ${
+            className={`group/btn flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-bold transition-all shadow-md ${
               product.stock <= 0
                 ? 'bg-zinc-800 text-zinc-500 cursor-not-allowed'
                 : added
@@ -192,13 +193,17 @@ export const ProductCard: React.FC<ProductCardProps> = ({
             }`}
           >
             {added ? (
-              <>
-                <Check className="w-3.5 h-3.5" />
+              <motion.div
+                initial={{ scale: 0, rotate: -45 }}
+                animate={{ scale: 1, rotate: 0 }}
+                className="flex items-center gap-1"
+              >
+                <Check className="w-3.5 h-3.5 stroke-[3]" />
                 <span>اضافه شد</span>
-              </>
+              </motion.div>
             ) : (
               <>
-                <ShoppingBag className="w-3.5 h-3.5" />
+                <ShoppingBag className="w-3.5 h-3.5 group-hover/btn:-rotate-12 group-hover/btn:scale-110 transition-transform duration-300" />
                 <span>{product.stock <= 0 ? 'ناموجود' : 'افزودن'}</span>
               </>
             )}
