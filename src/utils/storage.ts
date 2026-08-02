@@ -1,6 +1,6 @@
 import { Product, Order, StoreSettings, CategoryItem } from '../types';
 import { db } from '../lib/firebase';
-import { collection, getDocs, doc, setDoc, getDoc, writeBatch } from 'firebase/firestore';
+import { collection, getDocs, doc, setDoc, getDoc, writeBatch, onSnapshot } from 'firebase/firestore';
 
 const PRODUCTS_KEY = 'stock_jahani_products_v1';
 const ORDERS_KEY = 'stock_jahani_orders_v1';
@@ -101,6 +101,11 @@ export const DEMO_PRODUCTS: Product[] = [
   }
 ];
 
+function cleanForFirestore<T>(data: T): T {
+  if (data === undefined || data === null) return data;
+  return JSON.parse(JSON.stringify(data));
+}
+
 export function getStoredProducts(): Product[] {
   try {
     const data = localStorage.getItem(PRODUCTS_KEY);
@@ -131,12 +136,21 @@ export async function saveStoredProducts(products: Product[]): Promise<boolean> 
     });
 
     products.forEach((p) => {
-      batch.set(doc(db, 'products', p.id), p);
+      const cleanP = cleanForFirestore(p);
+      batch.set(doc(db, 'products', p.id), cleanP);
     });
 
     await batch.commit();
+    console.log('Saved products to Firestore successfully:', products.length);
   } catch (err) {
-    console.warn('Firestore products save error:', err);
+    console.error('Firestore batch product save error:', err);
+    for (const p of products) {
+      try {
+        await setDoc(doc(db, 'products', p.id), cleanForFirestore(p));
+      } catch (e) {
+        console.error('Failed individual setDoc for product:', p.id, e);
+      }
+    }
   }
 
   // Also sync to backend server API if available
@@ -179,12 +193,18 @@ export async function saveStoredOrders(orders: Order[]): Promise<boolean> {
     });
 
     orders.forEach((o) => {
-      batch.set(doc(db, 'orders', o.id), o);
+      const cleanO = cleanForFirestore(o);
+      batch.set(doc(db, 'orders', o.id), cleanO);
     });
 
     await batch.commit();
   } catch (err) {
-    console.warn('Firestore orders save error:', err);
+    console.error('Firestore orders save error:', err);
+    for (const o of orders) {
+      try {
+        await setDoc(doc(db, 'orders', o.id), cleanForFirestore(o));
+      } catch (e) {}
+    }
   }
 
   // Also sync to backend server API if available
@@ -224,9 +244,9 @@ export async function saveStoredSettings(settings: StoreSettings): Promise<boole
   }
 
   try {
-    await setDoc(doc(db, 'settings', 'store_settings'), settings);
+    await setDoc(doc(db, 'settings', 'store_settings'), cleanForFirestore(settings));
   } catch (err) {
-    console.warn('Firestore settings save error:', err);
+    console.error('Firestore settings save error:', err);
   }
 
   // Also sync to backend server API if available
@@ -242,6 +262,8 @@ export async function saveStoredSettings(settings: StoreSettings): Promise<boole
 // Fetch all shared data from Firebase Firestore
 export async function fetchServerData(): Promise<{ products: Product[]; orders: Order[]; settings: StoreSettings } | null> {
   try {
+    const localProducts = getStoredProducts();
+
     // 1. Fetch products from Firestore
     const productsSnap = await getDocs(collection(db, 'products'));
     let products: Product[] = [];
@@ -249,14 +271,13 @@ export async function fetchServerData(): Promise<{ products: Product[]; orders: 
       products.push(docSnap.data() as Product);
     });
 
-    // Seed default products if database is empty on first load
-    if (products.length === 0) {
+    // Seed or sync local products if Firestore is empty
+    if (products.length === 0 && localProducts.length > 0) {
+      await saveStoredProducts(localProducts);
+      products = localProducts;
+    } else if (products.length === 0) {
       const initial = DEMO_PRODUCTS;
-      const batch = writeBatch(db);
-      initial.forEach((p) => {
-        batch.set(doc(db, 'products', p.id), p);
-      });
-      await batch.commit();
+      await saveStoredProducts(initial);
       products = initial;
     }
 
@@ -273,7 +294,7 @@ export async function fetchServerData(): Promise<{ products: Product[]; orders: 
     if (settingsDoc.exists()) {
       settings = { ...DEFAULT_SETTINGS, ...settingsDoc.data() } as StoreSettings;
     } else {
-      await setDoc(doc(db, 'settings', 'store_settings'), DEFAULT_SETTINGS);
+      await setDoc(doc(db, 'settings', 'store_settings'), cleanForFirestore(DEFAULT_SETTINGS));
     }
 
     // Cache in localStorage
@@ -294,6 +315,68 @@ export async function fetchServerData(): Promise<{ products: Product[]; orders: 
       }
     } catch (e) {}
     return null;
+  }
+}
+
+// Live real-time subscription to Firebase Firestore for instant multi-device syncing
+export function subscribeToFirestore(
+  onDataUpdate: (data: { products?: Product[]; orders?: Order[]; settings?: StoreSettings }) => void
+) {
+  try {
+    const unsubProducts = onSnapshot(
+      collection(db, 'products'),
+      (snapshot) => {
+        const products: Product[] = [];
+        snapshot.forEach((docSnap) => {
+          products.push(docSnap.data() as Product);
+        });
+        if (products.length > 0) {
+          try {
+            localStorage.setItem(PRODUCTS_KEY, JSON.stringify(products));
+          } catch (e) {}
+          onDataUpdate({ products });
+        }
+      },
+      (err) => console.warn('Products live sync error:', err)
+    );
+
+    const unsubOrders = onSnapshot(
+      collection(db, 'orders'),
+      (snapshot) => {
+        const orders: Order[] = [];
+        snapshot.forEach((docSnap) => {
+          orders.push(docSnap.data() as Order);
+        });
+        try {
+          localStorage.setItem(ORDERS_KEY, JSON.stringify(orders));
+        } catch (e) {}
+        onDataUpdate({ orders });
+      },
+      (err) => console.warn('Orders live sync error:', err)
+    );
+
+    const unsubSettings = onSnapshot(
+      doc(db, 'settings', 'store_settings'),
+      (docSnap) => {
+        if (docSnap.exists()) {
+          const settings = { ...DEFAULT_SETTINGS, ...docSnap.data() } as StoreSettings;
+          try {
+            localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings));
+          } catch (e) {}
+          onDataUpdate({ settings });
+        }
+      },
+      (err) => console.warn('Settings live sync error:', err)
+    );
+
+    return () => {
+      unsubProducts();
+      unsubOrders();
+      unsubSettings();
+    };
+  } catch (e) {
+    console.warn('Firestore live subscription setup error:', e);
+    return () => {};
   }
 }
 
