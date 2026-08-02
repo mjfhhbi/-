@@ -1,0 +1,1527 @@
+import React, { useState } from 'react';
+import { Product, Order, StoreSettings, OrderStatus, CategoryType, CategoryItem } from '../types';
+import { formatToman, fileToBase64, DEMO_PRODUCTS, exportBackupData, importBackupData, DEFAULT_CATEGORIES } from '../utils/storage';
+import { 
+  Plus, 
+  Edit, 
+  Trash2, 
+  Image as ImageIcon, 
+  Glasses, 
+  ShoppingBag, 
+  Copy, 
+  Check, 
+  Search, 
+  X, 
+  Upload, 
+  Download,
+  ShieldCheck, 
+  Store, 
+  Settings, 
+  CheckCircle2, 
+  Clock, 
+  Truck, 
+  Package, 
+  Sparkles,
+  RefreshCw,
+  Phone,
+  Instagram,
+  Send,
+  Eye,
+  TrendingUp,
+  BarChart3,
+  Printer,
+  MessageSquare
+} from 'lucide-react';
+import { motion, AnimatePresence } from 'motion/react';
+
+interface AdminPanelProps {
+  products: Product[];
+  orders: Order[];
+  settings: StoreSettings;
+  onSaveProduct: (product: Product) => void;
+  onDeleteProduct: (id: string) => void;
+  onUpdateOrderStatus: (orderId: string, status: OrderStatus, postalTrackingCode?: string, adminNote?: string) => void;
+  onDeleteOrder?: (orderId: string) => void;
+  onSaveSettings: (settings: StoreSettings) => void;
+  onShowToast: (msg: string) => void;
+  onLoadDemoProducts?: () => void;
+  onOpenInvoice?: (order: Order) => void;
+}
+
+export const AdminPanel: React.FC<AdminPanelProps> = ({
+  products,
+  orders,
+  settings,
+  onSaveProduct,
+  onDeleteProduct,
+  onUpdateOrderStatus,
+  onDeleteOrder,
+  onSaveSettings,
+  onShowToast,
+  onLoadDemoProducts,
+  onOpenInvoice,
+}) => {
+  const [activeTab, setActiveTab] = useState<'products' | 'orders' | 'settings' | 'analytics'>('products');
+  const [searchQuery, setSearchQuery] = useState('');
+  const [selectedOrder, setSelectedOrder] = useState<Order | null>(null);
+
+  // Monthly Sales Calculations
+  const monthlySalesData = React.useMemo(() => {
+    const monthlyMap: { [key: string]: { monthName: string; totalRevenue: number; count: number } } = {};
+    const persianMonths = [
+      'فروردین', 'اردیبهشت', 'خرداد', 'تیر', 'مرداد', 'شهریور',
+      'مهر', 'آبان', 'آذر', 'دی', 'بهمن', 'اسفند'
+    ];
+
+    orders.forEach((order) => {
+      if (order.status === 'cancelled') return;
+      const d = new Date(order.createdAt);
+      const yearMonth = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+      
+      const monthIndex = (d.getMonth() + 3) % 12; // Persian month approximation
+      const label = `${persianMonths[monthIndex]} ${d.getFullYear()}`;
+
+      if (!monthlyMap[yearMonth]) {
+        monthlyMap[yearMonth] = {
+          monthName: label,
+          totalRevenue: 0,
+          count: 0,
+        };
+      }
+      monthlyMap[yearMonth].totalRevenue += order.finalAmount || order.totalAmount;
+      monthlyMap[yearMonth].count += 1;
+    });
+
+    return Object.entries(monthlyMap)
+      .map(([key, data]) => ({ key, ...data }))
+      .sort((a, b) => b.key.localeCompare(a.key));
+  }, [orders]);
+
+  // Tracking codes & notes state per order
+  const [trackingCodesMap, setTrackingCodesMap] = useState<{ [id: string]: string }>({});
+  const [adminNotesMap, setAdminNotesMap] = useState<{ [id: string]: string }>({});
+
+  // Add / Edit Product Modal State
+  const [isModalOpen, setIsModalOpen] = useState(false);
+  const [editingProduct, setEditingProduct] = useState<Product | null>(null);
+  const [viewingReceiptUrl, setViewingReceiptUrl] = useState<string | null>(null);
+
+  // Form Fields for Product Modal
+  const [formTitle, setFormTitle] = useState('');
+  const [formCode, setFormCode] = useState('');
+  const [formCategory, setFormCategory] = useState<string>('sunglasses');
+  const [formPrice, setFormPrice] = useState<number>(0);
+  const [formOriginalPrice, setFormOriginalPrice] = useState<number>(0);
+  const [formFrameType, setFormFrameType] = useState('کائوچویی');
+  const [formLensColor, setFormLensColor] = useState('دودی (UV400)');
+  const [formUvProtection, setFormUvProtection] = useState('UV400 + Polarized');
+  const [formGender, setFormGender] = useState<'مردانه' | 'زنانه' | 'اسپرت (یونی‌سکس)'>('اسپرت (یونی‌سکس)');
+  const [formDescription, setFormDescription] = useState('');
+  const [formFeatures, setFormFeatures] = useState('');
+  const [formStock, setFormStock] = useState<number>(5);
+  const [formImages, setFormImages] = useState<string[]>([]);
+  const [imageUrlInput, setImageUrlInput] = useState('');
+
+  // Settings local state
+  const [tempSettings, setTempSettings] = useState<StoreSettings>({ ...settings });
+  const [copiedType, setCopiedType] = useState<'store' | 'admin' | null>(null);
+
+  // Category management state
+  const [newCatLabel, setNewCatLabel] = useState('');
+  const [editingCatId, setEditingCatId] = useState<string | null>(null);
+  const [editingCatLabel, setEditingCatLabel] = useState('');
+
+  const activeCategories = tempSettings.categories && tempSettings.categories.length > 0
+    ? tempSettings.categories
+    : DEFAULT_CATEGORIES;
+
+  const handleAddCategory = () => {
+    if (!newCatLabel.trim()) return;
+    const newCat: CategoryItem = {
+      id: `cat-${Date.now()}`,
+      label: newCatLabel.trim(),
+    };
+    const updated = [...activeCategories, newCat];
+    setTempSettings({
+      ...tempSettings,
+      categories: updated,
+    });
+    setNewCatLabel('');
+    onShowToast(`دسته‌بندی «${newCat.label}» اضافه شد`);
+  };
+
+  const handleUpdateCategory = (id: string, label: string) => {
+    if (!label.trim()) return;
+    const updated = activeCategories.map((c) => (c.id === id ? { ...c, label: label.trim() } : c));
+    setTempSettings({
+      ...tempSettings,
+      categories: updated,
+    });
+    setEditingCatId(null);
+    onShowToast('نام دسته‌بندی به‌روزرسانی شد');
+  };
+
+  const handleDeleteCategory = (id: string, label: string) => {
+    if (activeCategories.length <= 1) {
+      onShowToast('حداقل یک دسته‌بندی باید در فروشگاه باقی بماند');
+      return;
+    }
+    const updated = activeCategories.filter((c) => c.id !== id);
+    setTempSettings({
+      ...tempSettings,
+      categories: updated,
+    });
+    onShowToast(`دسته‌بندی «${label}» حذف شد`);
+  };
+
+  // Stats Calculations
+  const totalRevenue = orders
+    .filter((o) => o.status !== 'cancelled')
+    .reduce((sum, o) => sum + o.finalAmount, 0);
+
+  const pendingOrdersCount = orders.filter((o) => o.status === 'pending').length;
+
+  // Open modal to create brand new product
+  const handleOpenAddModal = () => {
+    setEditingProduct(null);
+    setFormTitle('');
+    setFormCode(`STK-${Math.floor(100 + Math.random() * 900)}`);
+    setFormCategory('sunglasses');
+    setFormPrice(0);
+    setFormOriginalPrice(0);
+    setFormFrameType('کائوچویی استوک');
+    setFormLensColor('دودی');
+    setFormUvProtection('UV400');
+    setFormGender('اسپرت (یونی‌سکس)');
+    setFormDescription('');
+    setFormFeatures('عدسی با کیفیت، فریم مقاوم، همراه هارد کیس');
+    setFormStock(3);
+    setFormImages([]);
+    setImageUrlInput('');
+    setIsModalOpen(true);
+  };
+
+  // Open modal to edit existing product
+  const handleOpenEditModal = (prod: Product) => {
+    setEditingProduct(prod);
+    setFormTitle(prod.title);
+    setFormCode(prod.code || '');
+    setFormCategory(prod.category);
+    setFormPrice(prod.price);
+    setFormOriginalPrice(prod.originalPrice || 0);
+    setFormFrameType(prod.frameType || '');
+    setFormLensColor(prod.lensColor || '');
+    setFormUvProtection(prod.uvProtection || '');
+    setFormGender(prod.gender || 'اسپرت (یونی‌سکس)');
+    setFormDescription(prod.description || '');
+    setFormFeatures(prod.features ? prod.features.join('، ') : '');
+    setFormStock(prod.stock);
+    setFormImages(prod.images || []);
+    setImageUrlInput('');
+    setIsModalOpen(true);
+  };
+
+  // Upload image from file input
+  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = e.target.files;
+    if (files && files.length > 0) {
+      const newImages: string[] = [];
+      for (let i = 0; i < files.length; i++) {
+        try {
+          const base64 = await fileToBase64(files[i]);
+          newImages.push(base64);
+        } catch (err) {
+          console.error('Error uploading file:', err);
+        }
+      }
+      setFormImages((prev) => [...prev, ...newImages]);
+    }
+  };
+
+  const handleAddImageUrl = () => {
+    if (imageUrlInput.trim()) {
+      setFormImages((prev) => [...prev, imageUrlInput.trim()]);
+      setImageUrlInput('');
+    }
+  };
+
+  const handleRemoveImage = (index: number) => {
+    setFormImages((prev) => prev.filter((_, i) => i !== index));
+  };
+
+  const handleSaveProductSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!formTitle.trim()) {
+      onShowToast('لطفاً عنوان عینک را وارد کنید');
+      return;
+    }
+
+    const featureList = formFeatures
+      .split('،')
+      .flatMap((f) => f.split(','))
+      .map((f) => f.trim())
+      .filter((f) => f.length > 0);
+
+    const productData: Product = {
+      id: editingProduct ? editingProduct.id : Date.now().toString(),
+      title: formTitle,
+      code: formCode || 'STK-100',
+      category: formCategory,
+      price: Number(formPrice),
+      originalPrice: formOriginalPrice > 0 ? Number(formOriginalPrice) : undefined,
+      frameType: formFrameType,
+      lensColor: formLensColor,
+      uvProtection: formUvProtection,
+      gender: formGender,
+      images: formImages,
+      description: formDescription,
+      features: featureList,
+      stock: Number(formStock),
+      createdAt: editingProduct ? editingProduct.createdAt : new Date().toISOString(),
+    };
+
+    onSaveProduct(productData);
+    setIsModalOpen(false);
+    onShowToast(editingProduct ? 'عینک با موفقیت ویرایش شد' : 'عینک جدید به ویترین اضافه شد');
+  };
+
+  const copyUrl = (type: 'store' | 'admin') => {
+    const origin = window.location.origin + window.location.pathname;
+    const url = `${origin}?view=${type}`;
+    navigator.clipboard.writeText(url);
+    setCopiedType(type);
+    onShowToast(type === 'store' ? 'لینک عمومی فروشگاه کپی شد' : 'لینک پنل مدیریت کپی شد');
+    setTimeout(() => setCopiedType(null), 2500);
+  };
+
+  const filteredProducts = products.filter(
+    (p) =>
+      p.title.includes(searchQuery) ||
+      p.code.includes(searchQuery) ||
+      p.frameType?.includes(searchQuery)
+  );
+
+  return (
+    <div className="max-w-7xl mx-auto px-4 sm:px-6 py-6 space-y-6 text-right dir-rtl">
+      
+      {/* Top Banner & Stats Overview */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+        <div className="bg-zinc-900 border border-zinc-800 p-4 rounded-2xl flex items-center justify-between">
+          <div>
+            <span className="text-xs text-zinc-400 block">کل عینک‌ها در ویترین</span>
+            <span className="text-2xl font-black text-white">{products.length} عدد</span>
+          </div>
+          <div className="p-3 bg-amber-500/10 text-amber-400 rounded-xl">
+            <Glasses className="w-6 h-6 stroke-[1.8]" />
+          </div>
+        </div>
+
+        <div className="bg-zinc-900 border border-zinc-800 p-4 rounded-2xl flex items-center justify-between">
+          <div>
+            <span className="text-xs text-zinc-400 block">سفارشات جدید (در انتظار)</span>
+            <span className="text-2xl font-black text-amber-400">{pendingOrdersCount} سفارش</span>
+          </div>
+          <div className="p-3 bg-amber-500/10 text-amber-400 rounded-xl">
+            <Clock className="w-6 h-6 stroke-[1.8]" />
+          </div>
+        </div>
+
+        <div className="bg-zinc-900 border border-zinc-800 p-4 rounded-2xl flex items-center justify-between">
+          <div>
+            <span className="text-xs text-zinc-400 block">کل سفارشات ثبت شده</span>
+            <span className="text-2xl font-black text-white">{orders.length} سفارش</span>
+          </div>
+          <div className="p-3 bg-emerald-500/10 text-emerald-400 rounded-xl">
+            <ShoppingBag className="w-6 h-6 stroke-[1.8]" />
+          </div>
+        </div>
+
+        <div className="bg-zinc-900 border border-zinc-800 p-4 rounded-2xl flex items-center justify-between">
+          <div>
+            <span className="text-xs text-zinc-400 block">درآمد کل فروش</span>
+            <span className="text-lg font-black text-emerald-400">{formatToman(totalRevenue)}</span>
+          </div>
+          <div className="p-3 bg-emerald-500/10 text-emerald-400 rounded-xl">
+            <Sparkles className="w-6 h-6 stroke-[1.8]" />
+          </div>
+        </div>
+      </div>
+
+      {/* Share / Copy Links Quick Bar */}
+      <div className="bg-zinc-900/90 border border-zinc-800 p-4 rounded-2xl flex flex-col md:flex-row items-center justify-between gap-4">
+        <div className="flex items-center gap-3">
+          <div className="p-2.5 bg-amber-500/10 text-amber-400 rounded-xl shrink-0">
+            <ShieldCheck className="w-5 h-5" />
+          </div>
+          <div>
+            <h3 className="text-sm font-bold text-white">مدیریت لینک‌های اختصاصی فروشگاه stock_jahani</h3>
+            <p className="text-xs text-zinc-400">
+              لینک عمومی را به مشتریان بدهید تا عینک‌ها را ببینند و سفارش ثبت کنند.
+            </p>
+          </div>
+        </div>
+
+        <div className="flex items-center gap-2.5 shrink-0 w-full md:w-auto">
+          <button
+            onClick={() => copyUrl('store')}
+            className="flex-1 md:flex-none bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 px-3.5 py-2 rounded-xl text-xs font-bold flex items-center justify-center gap-2 transition-colors"
+          >
+            {copiedType === 'store' ? <Check className="w-4 h-4" /> : <Copy className="w-4 h-4" />}
+            <span>کپی لینک عمومی مشتریان</span>
+          </button>
+
+          <button
+            onClick={() => copyUrl('admin')}
+            className="flex-1 md:flex-none bg-amber-500/10 hover:bg-amber-500/20 text-amber-400 border border-amber-500/30 px-3.5 py-2 rounded-xl text-xs font-bold flex items-center justify-center gap-2 transition-colors"
+          >
+            {copiedType === 'admin' ? <Check className="w-4 h-4" /> : <Copy className="w-4 h-4" />}
+            <span>کپی لینک پنل مدیریت</span>
+          </button>
+        </div>
+      </div>
+
+      {/* Admin Tabs Navigation */}
+      <div className="flex items-center border-b border-zinc-800 gap-4 overflow-x-auto">
+        <button
+          onClick={() => setActiveTab('products')}
+          className={`pb-3 text-sm font-bold border-b-2 transition-all flex items-center gap-2 whitespace-nowrap ${
+            activeTab === 'products'
+              ? 'border-amber-400 text-amber-400'
+              : 'border-transparent text-zinc-400 hover:text-zinc-200'
+          }`}
+        >
+          <Glasses className="w-4 h-4" />
+          <span>مدیریت عینک‌ها ({products.length})</span>
+        </button>
+
+        <button
+          onClick={() => setActiveTab('orders')}
+          className={`pb-3 text-sm font-bold border-b-2 transition-all flex items-center gap-2 whitespace-nowrap relative ${
+            activeTab === 'orders'
+              ? 'border-amber-400 text-amber-400'
+              : 'border-transparent text-zinc-400 hover:text-zinc-200'
+          }`}
+        >
+          <ShoppingBag className="w-4 h-4" />
+          <span>مدیریت سفارشات ({orders.length})</span>
+          {pendingOrdersCount > 0 && (
+            <span className="bg-rose-600 text-white text-[10px] px-1.5 py-0.5 rounded-full font-mono">
+              {pendingOrdersCount}
+            </span>
+          )}
+        </button>
+
+        <button
+          onClick={() => setActiveTab('analytics')}
+          className={`pb-3 text-sm font-bold border-b-2 transition-all flex items-center gap-2 whitespace-nowrap ${
+            activeTab === 'analytics'
+              ? 'border-amber-400 text-amber-400'
+              : 'border-transparent text-zinc-400 hover:text-zinc-200'
+          }`}
+        >
+          <BarChart3 className="w-4 h-4 text-amber-400" />
+          <span>گزارش فروش ماهانه</span>
+        </button>
+
+        <button
+          onClick={() => setActiveTab('settings')}
+          className={`pb-3 text-sm font-bold border-b-2 transition-all flex items-center gap-2 whitespace-nowrap ${
+            activeTab === 'settings'
+              ? 'border-amber-400 text-amber-400'
+              : 'border-transparent text-zinc-400 hover:text-zinc-200'
+          }`}
+        >
+          <Settings className="w-4 h-4" />
+          <span>تنظیمات فروشگاه</span>
+        </button>
+      </div>
+
+      {/* TAB 1: PRODUCTS MANAGEMENT */}
+      {activeTab === 'products' && (
+        <div className="space-y-4">
+          <div className="flex flex-col sm:flex-row items-center justify-between gap-3 bg-zinc-900/60 p-3.5 rounded-2xl border border-zinc-800">
+            <div className="relative w-full sm:w-80">
+              <Search className="absolute right-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-zinc-400" />
+              <input
+                type="text"
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                placeholder="جستجو در عینک‌ها بر اساس نام یا کد..."
+                className="w-full bg-zinc-950 border border-zinc-800 rounded-xl pr-10 pl-4 py-2 text-xs text-zinc-100 placeholder-zinc-500 focus:outline-none focus:border-amber-500"
+              />
+            </div>
+
+            <div className="flex items-center gap-2 w-full sm:w-auto">
+              {onLoadDemoProducts && products.length === 0 && (
+                <button
+                  onClick={onLoadDemoProducts}
+                  className="bg-zinc-800 hover:bg-zinc-700 text-zinc-300 px-3 py-2 rounded-xl text-xs font-bold flex items-center gap-1.5 transition-colors"
+                >
+                  <RefreshCw className="w-3.5 h-3.5" />
+                  <span>بارگذاری چند نمونه تست</span>
+                </button>
+              )}
+
+              <button
+                onClick={handleOpenAddModal}
+                className="w-full sm:w-auto bg-amber-500 hover:bg-amber-400 text-zinc-950 px-4 py-2 rounded-xl text-xs font-extrabold flex items-center justify-center gap-2 shadow-lg shadow-amber-500/20 transition-all"
+              >
+                <Plus className="w-4 h-4 stroke-[3]" />
+                <span>افزودن عینک جدید</span>
+              </button>
+            </div>
+          </div>
+
+          {/* Empty State when no products exist */}
+          {filteredProducts.length === 0 ? (
+            <div className="bg-zinc-900/40 border-2 border-dashed border-zinc-800 rounded-2xl p-10 text-center space-y-4 my-6">
+              <div className="w-16 h-16 rounded-2xl bg-zinc-800/80 text-amber-400 flex items-center justify-center mx-auto">
+                <Glasses className="w-8 h-8 stroke-[1.5]" />
+              </div>
+              <div className="max-w-md mx-auto">
+                <h3 className="text-base font-bold text-white">هنوز عینک ثبت نشده است</h3>
+                <p className="text-xs text-zinc-400 mt-1 leading-relaxed">
+                  ویترین شما آماده است! بر روی دکمه «افزودن عینک جدید» کلیک کنید و عکس‌ها، قیمت و مشخصات عینک‌های خود را وارد نمایید.
+                </p>
+              </div>
+              <button
+                onClick={handleOpenAddModal}
+                className="bg-amber-500 hover:bg-amber-400 text-zinc-950 px-5 py-2.5 rounded-xl text-xs font-extrabold inline-flex items-center gap-2 transition-all shadow-lg"
+              >
+                <Plus className="w-4 h-4" />
+                <span>افزودن اولین عینک</span>
+              </button>
+            </div>
+          ) : (
+            /* Products Table / Grid */
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+              {filteredProducts.map((prod) => (
+                <div
+                  key={prod.id}
+                  className="bg-zinc-900 border border-zinc-800 rounded-2xl p-3.5 flex flex-col justify-between space-y-3 relative group"
+                >
+                  <div className="aspect-[4/3] rounded-xl bg-zinc-950 border border-zinc-800 overflow-hidden relative flex items-center justify-center">
+                    {prod.images && prod.images[0] ? (
+                      <img src={prod.images[0]} alt={prod.title} className="w-full h-full object-cover" />
+                    ) : (
+                      <Glasses className="w-8 h-8 text-zinc-700" />
+                    )}
+                    <span className="absolute top-2 right-2 bg-zinc-900/90 text-amber-400 text-[10px] font-bold px-2 py-0.5 rounded-full border border-amber-500/20">
+                      {prod.code}
+                    </span>
+                  </div>
+
+                  <div className="space-y-1">
+                    <h4 className="text-xs font-bold text-white truncate">{prod.title}</h4>
+                    <div className="text-[11px] text-zinc-400 flex items-center justify-between">
+                      <span>{prod.frameType || 'عینک استوک'}</span>
+                      <span className="text-amber-400 font-bold">{formatToman(prod.price)}</span>
+                    </div>
+                  </div>
+
+                  <div className="pt-2 border-t border-zinc-800 flex items-center justify-between text-xs">
+                    <span className="text-zinc-500 text-[10px]">موجودی: {prod.stock} عدد</span>
+                    <div className="flex items-center gap-1">
+                      <button
+                        onClick={() => handleOpenEditModal(prod)}
+                        className="bg-zinc-800 hover:bg-zinc-700 text-amber-400 p-1.5 rounded-lg transition-colors"
+                        title="ویرایش عینک"
+                      >
+                        <Edit className="w-3.5 h-3.5" />
+                      </button>
+                      <button
+                        onClick={() => {
+                          if (window.confirm('آیا از حذف این عینک مطمئن هستید؟')) {
+                            onDeleteProduct(prod.id);
+                            onShowToast('عینک با موفقیت حذف شد');
+                          }
+                        }}
+                        className="bg-zinc-800 hover:bg-rose-900/50 text-rose-400 p-1.5 rounded-lg transition-colors"
+                        title="حذف"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* TAB 2: ORDERS MANAGEMENT */}
+      {activeTab === 'orders' && (
+        <div className="space-y-4">
+          {orders.length === 0 ? (
+            <div className="bg-zinc-900/40 border border-zinc-800 rounded-2xl p-10 text-center space-y-3">
+              <ShoppingBag className="w-12 h-12 text-zinc-700 mx-auto" />
+              <h3 className="text-sm font-bold text-zinc-300">هنوز سفارشی ثبت نشده است</h3>
+              <p className="text-xs text-zinc-500">
+                به محض ثبت سفارش توسط مشتریان، اطلاعات خریدار و اقلام انتخابی در این بخش نمایش داده می‌شود.
+              </p>
+            </div>
+          ) : (
+            <div className="space-y-3">
+              {orders.map((ord) => (
+                <div
+                  key={ord.id}
+                  className="bg-zinc-900 border border-zinc-800 p-4 rounded-2xl space-y-3 text-xs"
+                >
+                  <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2 border-b border-zinc-800 pb-3">
+                    <div className="flex items-center gap-3">
+                      <span className="font-mono font-extrabold text-amber-400 text-sm bg-amber-500/10 px-2.5 py-1 rounded-lg border border-amber-500/20">
+                        {ord.orderCode}
+                      </span>
+                      <span className="text-zinc-400">
+                        ثبت: {new Date(ord.createdAt).toLocaleDateString('fa-IR')}
+                      </span>
+                    </div>
+
+                    <div className="flex items-center gap-2">
+                      <span className="text-zinc-400">وضعیت سفارش:</span>
+                      <select
+                        value={ord.status}
+                        onChange={(e) => {
+                          onUpdateOrderStatus(ord.id, e.target.value as OrderStatus);
+                          onShowToast('وضعیت سفارش بروزرسانی شد');
+                        }}
+                        className="bg-zinc-950 border border-zinc-800 text-amber-400 font-bold px-3 py-1 rounded-xl text-xs focus:outline-none"
+                      >
+                        <option value="pending">در انتظار تایید</option>
+                        <option value="confirmed">تایید شده</option>
+                        <option value="shipping">در حال ارسال (پست)</option>
+                        <option value="delivered">تحویل داده شده</option>
+                        <option value="cancelled">لغو شده</option>
+                      </select>
+                    </div>
+                  </div>
+
+                  {/* Customer Info Grid */}
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-3 bg-zinc-950/70 p-3 rounded-xl border border-zinc-800/60">
+                    <div>
+                      <span className="text-zinc-500 block">خریدار:</span>
+                      <span className="font-bold text-white">{ord.customer.fullName}</span>
+                    </div>
+
+                    <div>
+                      <span className="text-zinc-500 block">شماره تماس:</span>
+                      <span className="font-mono text-amber-400 font-bold dir-ltr">{ord.customer.phone}</span>
+                    </div>
+
+                    <div>
+                      <span className="text-zinc-500 block">آدرس ارسال:</span>
+                      <span className="text-zinc-300 leading-snug">{ord.customer.province}، {ord.customer.city}، {ord.customer.address}</span>
+                    </div>
+                  </div>
+
+                  {/* Items Ordered List */}
+                  <div className="space-y-1.5 pt-1">
+                    <span className="text-zinc-400 font-bold">اقلام خریداری شده:</span>
+                    <div className="flex flex-wrap gap-2">
+                      {ord.items.map((it, idx) => (
+                        <span
+                          key={idx}
+                          className="bg-zinc-950 text-zinc-300 px-2.5 py-1 rounded-lg border border-zinc-800 text-[11px] flex items-center gap-1.5"
+                        >
+                          <Glasses className="w-3.5 h-3.5 text-amber-400" />
+                          <span>{it.product.title}</span>
+                          <span className="text-amber-400 font-bold">({it.quantity} عدد)</span>
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* Postal Tracking Code & Admin Note Input Section */}
+                  <div className="bg-zinc-950 p-3.5 rounded-xl border border-amber-500/30 space-y-3">
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs font-bold text-amber-400 flex items-center gap-1.5">
+                        <Truck className="w-4 h-4" />
+                        <span>ثبت و ویرایش کد رهگیری پستی و پیام برای خریدار:</span>
+                      </span>
+                      {ord.postalTrackingCode && (
+                        <span className="text-[10px] text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded-md font-mono dir-ltr font-bold">
+                          کد فعلی: {ord.postalTrackingCode}
+                        </span>
+                      )}
+                    </div>
+
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                      <div>
+                        <label className="block text-[11px] text-zinc-400 mb-1">کد ۲۴ رقمی رهگیری پست پیشتاز:</label>
+                        <input
+                          type="text"
+                          placeholder="مثلاً: 241234567890123456789012"
+                          value={trackingCodesMap[ord.id] ?? ord.postalTrackingCode ?? ''}
+                          onChange={(e) =>
+                            setTrackingCodesMap({ ...trackingCodesMap, [ord.id]: e.target.value })
+                          }
+                          className="w-full bg-zinc-900 border border-zinc-800 rounded-xl px-3 py-1.5 text-xs text-amber-300 font-mono tracking-wider text-right dir-ltr focus:outline-none focus:border-amber-500"
+                        />
+                      </div>
+
+                      <div>
+                        <label className="block text-[11px] text-zinc-400 mb-1">توضیحات اختصاصی برای خریدار (اختیاری):</label>
+                        <input
+                          type="text"
+                          placeholder="مثلاً: مرسوله تحویل پست شد"
+                          value={adminNotesMap[ord.id] ?? ord.adminNote ?? ''}
+                          onChange={(e) =>
+                            setAdminNotesMap({ ...adminNotesMap, [ord.id]: e.target.value })
+                          }
+                          className="w-full bg-zinc-900 border border-zinc-800 rounded-xl px-3 py-1.5 text-xs text-zinc-200 focus:outline-none focus:border-amber-500"
+                        />
+                      </div>
+                    </div>
+
+                    <div className="flex items-center justify-end gap-2 pt-1">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const code = trackingCodesMap[ord.id] ?? ord.postalTrackingCode ?? '';
+                          const note = adminNotesMap[ord.id] ?? ord.adminNote ?? '';
+                          if (!code) {
+                            onShowToast('لطفاً کد ۲۴ رقمی پستی را وارد کنید');
+                            return;
+                          }
+                          onUpdateOrderStatus(ord.id, 'shipping', code, note);
+                          onShowToast('کد رهگیری پستی با موفقیت ثبت شد و وضعیت به "ارسال شده" تغییر کرد');
+                        }}
+                        className="bg-amber-500 hover:bg-amber-400 text-zinc-950 font-black px-4 py-1.5 rounded-xl text-xs flex items-center gap-1.5 shadow-md transition-colors"
+                      >
+                        <Truck className="w-3.5 h-3.5" />
+                        <span>ثبت کد پستی و تغییر وضعیت به ارسال شده</span>
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Payment Info & Receipt Preview */}
+                  <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 pt-2 border-t border-zinc-800">
+                    <div className="flex items-center gap-3">
+                      <div className="text-zinc-400">
+                        <span>روش پرداخت: </span>
+                        <span className="text-amber-400 font-bold">
+                          {ord.paymentMethod === 'card_to_card' ? 'کارت به کارت' : ord.paymentMethod === 'online_gateway' ? 'درگاه آنلاین' : 'پرداخت هنگام تحویل'}
+                        </span>
+                      </div>
+
+                      {/* Receipt Image Thumbnail & Modal Trigger */}
+                      {ord.paymentReceipt ? (
+                        <div className="flex items-center gap-2 bg-amber-500/10 border border-amber-500/30 px-2.5 py-1 rounded-xl">
+                          <img
+                            src={ord.paymentReceipt}
+                            alt="فیش واریزی"
+                            className="w-7 h-7 rounded-lg object-cover cursor-pointer border border-zinc-700"
+                            onClick={() => setViewingReceiptUrl(ord.paymentReceipt || null)}
+                          />
+                          <button
+                            type="button"
+                            onClick={() => setViewingReceiptUrl(ord.paymentReceipt || null)}
+                            className="text-amber-400 font-bold text-[11px] hover:underline flex items-center gap-1"
+                          >
+                            <Eye className="w-3.5 h-3.5" />
+                            <span>مشاهده فیش واریزی</span>
+                          </button>
+                        </div>
+                      ) : ord.paymentMethod === 'card_to_card' ? (
+                        <span className="text-rose-400 text-[10px] bg-rose-500/10 px-2 py-0.5 rounded-full border border-rose-500/20">
+                          فیش آپلود نشده
+                        </span>
+                      ) : null}
+                    </div>
+
+                    <div className="flex items-center gap-2 w-full sm:w-auto justify-between sm:justify-end flex-wrap">
+                      {onOpenInvoice && (
+                        <button
+                          type="button"
+                          onClick={() => onOpenInvoice(ord)}
+                          className="bg-amber-500/10 hover:bg-amber-500/20 text-amber-400 border border-amber-500/30 px-3 py-1.5 rounded-xl text-xs font-bold flex items-center gap-1.5 transition-colors"
+                        >
+                          <Printer className="w-3.5 h-3.5" />
+                          <span>صدور فاکتور PDF</span>
+                        </button>
+                      )}
+
+                      {ord.status === 'pending' && (
+                        <button
+                          onClick={() => {
+                            onUpdateOrderStatus(ord.id, 'confirmed');
+                            onShowToast('فیش واریزی تایید و پیامک اطلاع‌رسانی برای خریدار ارسال گردید');
+                          }}
+                          className="bg-emerald-500 hover:bg-emerald-400 text-zinc-950 font-extrabold px-3 py-1.5 rounded-xl text-xs flex items-center gap-1 transition-colors shadow-sm"
+                        >
+                          <CheckCircle2 className="w-3.5 h-3.5" />
+                          <span>تایید واریزی و ارسال پیامک</span>
+                        </button>
+                      )}
+
+                      {onDeleteOrder && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            if (window.confirm(`آیا از حذف سفارش ${ord.orderCode} مربوط به ${ord.customer.fullName} اطمینان دارید؟`)) {
+                              onDeleteOrder(ord.id);
+                            }
+                          }}
+                          className="bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 border border-rose-500/30 px-2.5 py-1.5 rounded-xl text-xs font-bold flex items-center gap-1 transition-colors"
+                          title="حذف کامل این سفارش از لیست"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                          <span>حذف سفارش</span>
+                        </button>
+                      )}
+
+                      <div className="text-sm font-black text-amber-400 mr-2">
+                        مبلغ کل: {formatToman(ord.finalAmount)}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* TAB: MONTHLY SALES ANALYTICS & REPORT */}
+      {activeTab === 'analytics' && (
+        <div className="space-y-5">
+          {/* Summary Stat Cards */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3.5">
+            <div className="bg-zinc-900 border border-zinc-800 p-4 rounded-2xl space-y-2">
+              <span className="text-xs text-zinc-400 block">جمع کل درآمد ثبت شده</span>
+              <span className="text-xl font-black text-amber-400 font-mono">
+                {formatToman(orders.filter(o => o.status !== 'cancelled').reduce((sum, o) => sum + (o.finalAmount || o.totalAmount), 0))}
+              </span>
+              <span className="text-[10px] text-zinc-500 block">سفارشات فعال و تایید شده</span>
+            </div>
+
+            <div className="bg-zinc-900 border border-zinc-800 p-4 rounded-2xl space-y-2">
+              <span className="text-xs text-zinc-400 block">تعداد کل سفارشات</span>
+              <span className="text-xl font-black text-white font-mono">
+                {orders.filter(o => o.status !== 'cancelled').length} عدد
+              </span>
+              <span className="text-[10px] text-emerald-400 block">
+                {orders.filter(o => o.status === 'delivered' || o.status === 'shipping').length} ارسال شده به مشتری
+              </span>
+            </div>
+
+            <div className="bg-zinc-900 border border-zinc-800 p-4 rounded-2xl space-y-2">
+              <span className="text-xs text-zinc-400 block">میانگین مبلغ هر سبد خرید</span>
+              <span className="text-xl font-black text-amber-400 font-mono">
+                {orders.filter(o => o.status !== 'cancelled').length > 0
+                  ? formatToman(
+                      Math.round(
+                        orders.filter(o => o.status !== 'cancelled').reduce((sum, o) => sum + (o.finalAmount || o.totalAmount), 0) /
+                          orders.filter(o => o.status !== 'cancelled').length
+                      )
+                    )
+                  : '۰ تومان'}
+              </span>
+              <span className="text-[10px] text-zinc-500 block">میزان خریدهای هر مشتری</span>
+            </div>
+
+            <div className="bg-zinc-900 border border-zinc-800 p-4 rounded-2xl space-y-2">
+              <span className="text-xs text-zinc-400 block">تعداد عینک‌های موجود</span>
+              <span className="text-xl font-black text-white font-mono">
+                {products.length} مدل
+              </span>
+              <span className="text-[10px] text-zinc-500 block">تنوع عینک در ویترین</span>
+            </div>
+          </div>
+
+          {/* Monthly Sales Breakdown Table & Bars */}
+          <div className="bg-zinc-900 border border-zinc-800 p-5 rounded-2xl space-y-4">
+            <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 border-b border-zinc-800 pb-3">
+              <div>
+                <h4 className="text-base font-bold text-white flex items-center gap-2">
+                  <BarChart3 className="w-5 h-5 text-amber-400" />
+                  <span>گزارش تفکیکی فروش ماهانه</span>
+                </h4>
+                <p className="text-xs text-zinc-400 mt-0.5">آمار درآمد و تعداد سفارشات بر اساس ماه‌های سال</p>
+              </div>
+
+              <button
+                type="button"
+                onClick={() => window.print()}
+                className="bg-amber-500 hover:bg-amber-400 text-zinc-950 px-3.5 py-1.5 rounded-xl font-bold text-xs flex items-center gap-1.5 transition-colors shadow-md"
+              >
+                <Printer className="w-4 h-4" />
+                <span>چاپ گزارش ماهانه</span>
+              </button>
+            </div>
+
+            {monthlySalesData.length === 0 ? (
+              <p className="text-xs text-zinc-500 text-center py-6">هنوز داده فروش برای محاسبه ماه‌ها ثبت نشده است.</p>
+            ) : (
+              <div className="space-y-3">
+                {monthlySalesData.map((data) => {
+                  const maxRevenue = Math.max(...monthlySalesData.map(m => m.totalRevenue), 1);
+                  const percentage = Math.round((data.totalRevenue / maxRevenue) * 100);
+
+                  return (
+                    <div key={data.key} className="bg-zinc-950 p-3.5 rounded-xl border border-zinc-800 space-y-2 text-xs">
+                      <div className="flex items-center justify-between">
+                        <span className="font-bold text-white text-sm">{data.monthName}</span>
+                        <div className="flex items-center gap-4">
+                          <span className="text-zinc-400 font-mono">{data.count} سفارش</span>
+                          <span className="font-black text-amber-400 font-mono text-sm">{formatToman(data.totalRevenue)}</span>
+                        </div>
+                      </div>
+
+                      {/* Visual Bar */}
+                      <div className="w-full bg-zinc-900 rounded-full h-2.5 overflow-hidden">
+                        <div
+                          className="bg-gradient-to-l from-amber-500 to-amber-400 h-full rounded-full transition-all duration-500"
+                          style={{ width: `${Math.max(percentage, 5)}%` }}
+                        />
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* TAB 3: STORE SETTINGS */}
+      {activeTab === 'settings' && (
+        <div className="bg-zinc-900 border border-zinc-800 p-6 rounded-2xl max-w-2xl space-y-4">
+          <h3 className="text-base font-bold text-white mb-2">مدیریت تمام متن‌ها و اطلاعات فروشگاه stock_jahani</h3>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <div>
+              <label className="block text-xs font-medium text-zinc-300 mb-1">نام فروشگاه</label>
+              <input
+                type="text"
+                value={tempSettings.storeName}
+                onChange={(e) => setTempSettings({ ...tempSettings, storeName: e.target.value })}
+                className="w-full bg-zinc-950 border border-zinc-800 rounded-xl px-3.5 py-2 text-xs text-white"
+              />
+            </div>
+
+            <div>
+              <label className="block text-xs font-medium text-zinc-300 mb-1">شعار هدر بالای سایت</label>
+              <input
+                type="text"
+                value={tempSettings.tagline}
+                onChange={(e) => setTempSettings({ ...tempSettings, tagline: e.target.value })}
+                className="w-full bg-zinc-950 border border-zinc-800 rounded-xl px-3.5 py-2 text-xs text-white"
+              />
+            </div>
+          </div>
+
+          {/* Site Announcement & Hero Section Texts */}
+          <div className="bg-zinc-950 p-4 rounded-xl border border-zinc-800 space-y-3">
+            <h4 className="text-xs font-bold text-amber-400 flex items-center gap-1.5">
+              <Sparkles className="w-4 h-4" />
+              <span>ویرایش متن‌های بنر اصلی و اعلان بالای فروشگاه</span>
+            </h4>
+
+            <div>
+              <label className="block text-xs font-medium text-zinc-300 mb-1">متن نوار متحرک بالای سایت (Announcement Bar)</label>
+              <input
+                type="text"
+                value={tempSettings.bannerMessage || ''}
+                onChange={(e) => setTempSettings({ ...tempSettings, bannerMessage: e.target.value })}
+                placeholder="✨ ارسال با پست پیشتاز به سراسر کشور..."
+                className="w-full bg-zinc-900 border border-zinc-800 rounded-xl px-3.5 py-2 text-xs text-white"
+              />
+            </div>
+
+            <div>
+              <label className="block text-xs font-medium text-zinc-300 mb-1">تیتر بزرگ بنر اصلی صفحه اول (Welcome Headline)</label>
+              <input
+                type="text"
+                value={tempSettings.welcomeText || ''}
+                onChange={(e) => setTempSettings({ ...tempSettings, welcomeText: e.target.value })}
+                placeholder="تجربه‌ای متفاوت از کیفیت و استایل با عینک استوک جهانی"
+                className="w-full bg-zinc-900 border border-zinc-800 rounded-xl px-3.5 py-2 text-xs text-white font-bold"
+              />
+            </div>
+
+            <div>
+              <label className="block text-xs font-medium text-zinc-300 mb-1">توضیحات زیر تیتر اصلی (Welcome Subtext)</label>
+              <textarea
+                rows={2}
+                value={tempSettings.welcomeSubtext || ''}
+                onChange={(e) => setTempSettings({ ...tempSettings, welcomeSubtext: e.target.value })}
+                placeholder="مجموعه کامل عینک‌های آفتابی و طبی اورجینال..."
+                className="w-full bg-zinc-900 border border-zinc-800 rounded-xl px-3.5 py-2 text-xs text-white"
+              />
+            </div>
+
+            <div>
+              <label className="block text-xs font-medium text-zinc-300 mb-1">متن اطلاعیه ویژه خریداران (در بخش پیگیری سفارشات)</label>
+              <textarea
+                rows={2}
+                value={tempSettings.noticeText || ''}
+                onChange={(e) => setTempSettings({ ...tempSettings, noticeText: e.target.value })}
+                placeholder="💡 خریداران گرامی: پس از ثبت سفارش..."
+                className="w-full bg-zinc-900 border border-zinc-800 rounded-xl px-3.5 py-2 text-xs text-white"
+              />
+            </div>
+
+            <div>
+              <label className="block text-xs font-medium text-zinc-300 mb-1">متن درباره فروشگاه (aboutText) / فوتر</label>
+              <textarea
+                rows={2}
+                value={tempSettings.aboutText || ''}
+                onChange={(e) => setTempSettings({ ...tempSettings, aboutText: e.target.value })}
+                placeholder="فروشگاه عینک استوک جهانی عرضه کننده مستقیم..."
+                className="w-full bg-zinc-900 border border-zinc-800 rounded-xl px-3.5 py-2 text-xs text-white"
+              />
+            </div>
+
+            <div>
+              <label className="block text-xs font-medium text-zinc-300 mb-1">متن قوانین و شرایط ارسال (rulesText)</label>
+              <textarea
+                rows={2}
+                value={tempSettings.rulesText || ''}
+                onChange={(e) => setTempSettings({ ...tempSettings, rulesText: e.target.value })}
+                placeholder="تمامی بسته‌ها با پُست پیشتاز ارسال می‌شوند..."
+                className="w-full bg-zinc-900 border border-zinc-800 rounded-xl px-3.5 py-2 text-xs text-white"
+              />
+            </div>
+          </div>
+
+          {/* Category Management Section */}
+          <div className="bg-zinc-950 p-4 rounded-xl border border-amber-500/30 space-y-4">
+            <div className="flex items-center justify-between border-b border-zinc-800 pb-3">
+              <div>
+                <h4 className="text-sm font-bold text-amber-400 flex items-center gap-1.5">
+                  <Glasses className="w-4 h-4 text-amber-400" />
+                  <span>مدیریت دسته‌بندی‌های محصولات (عینک آفتابی، طبی، اسپرت و...)</span>
+                </h4>
+                <p className="text-[11px] text-zinc-400 mt-1">
+                  می‌توانید نام دسته‌بندی‌ها را ویرایش کنید، دسته‌بندی جدید اضافه کرده یا موارد دلخواه را حذف نمایید.
+                </p>
+              </div>
+            </div>
+
+            {/* Add New Category Form */}
+            <div className="flex flex-col sm:flex-row gap-2">
+              <input
+                type="text"
+                value={newCatLabel}
+                onChange={(e) => setNewCatLabel(e.target.value)}
+                onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); handleAddCategory(); } }}
+                placeholder="عنوان دسته‌بندی جدید (مثلا: عینک آفتابی، عینک طبی...)"
+                className="flex-1 bg-zinc-900 border border-zinc-800 rounded-xl px-3.5 py-2 text-xs text-white placeholder-zinc-500 focus:outline-none focus:border-amber-500"
+              />
+              <button
+                type="button"
+                onClick={handleAddCategory}
+                className="bg-amber-500 hover:bg-amber-400 text-zinc-950 px-4 py-2 rounded-xl text-xs font-bold flex items-center justify-center gap-1 transition-colors shrink-0 shadow-md"
+              >
+                <Plus className="w-4 h-4 stroke-[2.5]" />
+                <span>افزودن دسته‌بندی</span>
+              </button>
+            </div>
+
+            {/* Categories List */}
+            <div className="space-y-2 pt-1">
+              <span className="text-xs text-zinc-400 block font-medium">دسته‌بندی‌های فعلی نمایش داده شده در منوی سایت:</span>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                {activeCategories.map((cat) => (
+                  <div
+                    key={cat.id}
+                    className="bg-zinc-900 border border-zinc-800 p-2.5 rounded-xl flex items-center justify-between gap-2"
+                  >
+                    {editingCatId === cat.id ? (
+                      <div className="flex items-center gap-1.5 w-full">
+                        <input
+                          type="text"
+                          value={editingCatLabel}
+                          onChange={(e) => setEditingCatLabel(e.target.value)}
+                          className="w-full bg-zinc-950 border border-amber-500/50 rounded-lg px-2.5 py-1 text-xs text-white focus:outline-none"
+                          autoFocus
+                        />
+                        <button
+                          type="button"
+                          onClick={() => handleUpdateCategory(cat.id, editingCatLabel)}
+                          className="bg-emerald-600 hover:bg-emerald-500 text-white px-2.5 py-1 rounded-lg text-xs font-bold shrink-0"
+                        >
+                          ثبت
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setEditingCatId(null)}
+                          className="bg-zinc-800 text-zinc-400 px-2 py-1 rounded-lg text-xs shrink-0"
+                        >
+                          انصراف
+                        </button>
+                      </div>
+                    ) : (
+                      <>
+                        <div className="flex items-center gap-2">
+                          <span className="w-2 h-2 rounded-full bg-amber-400"></span>
+                          <span className="text-xs font-bold text-white">{cat.label}</span>
+                          <span className="text-[10px] text-zinc-500 font-mono dir-ltr">({cat.id})</span>
+                        </div>
+                        <div className="flex items-center gap-1">
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setEditingCatId(cat.id);
+                              setEditingCatLabel(cat.label);
+                            }}
+                            className="p-1.5 text-zinc-400 hover:text-amber-400 hover:bg-zinc-800 rounded-lg transition-colors"
+                            title="ویرایش نام"
+                          >
+                            <Edit className="w-3.5 h-3.5" />
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => handleDeleteCategory(cat.id, cat.label)}
+                            className="p-1.5 text-zinc-400 hover:text-rose-400 hover:bg-zinc-800 rounded-lg transition-colors"
+                            title="حذف دسته‌بندی"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
+                      </>
+                    )}
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+            <div>
+              <label className="block text-xs font-medium text-zinc-300 mb-1">آیدی اینستاگرام</label>
+              <input
+                type="text"
+                value={tempSettings.instagram}
+                onChange={(e) => setTempSettings({ ...tempSettings, instagram: e.target.value })}
+                className="w-full bg-zinc-950 border border-zinc-800 rounded-xl px-3.5 py-2 text-xs text-white font-mono dir-ltr text-right"
+              />
+            </div>
+
+            <div>
+              <label className="block text-xs font-medium text-zinc-300 mb-1">شماره تلفن تماس</label>
+              <input
+                type="text"
+                value={tempSettings.phone}
+                onChange={(e) => setTempSettings({ ...tempSettings, phone: e.target.value })}
+                className="w-full bg-zinc-950 border border-zinc-800 rounded-xl px-3.5 py-2 text-xs text-white font-mono dir-ltr text-right"
+              />
+            </div>
+
+            <div>
+              <label className="block text-xs font-medium text-zinc-300 mb-1">سقف خرید برای ارسال رایگان (تومان)</label>
+              <input
+                type="number"
+                value={tempSettings.freeShippingThreshold}
+                onChange={(e) => setTempSettings({ ...tempSettings, freeShippingThreshold: Number(e.target.value) })}
+                className="w-full bg-zinc-950 border border-zinc-800 rounded-xl px-3.5 py-2 text-xs text-white"
+              />
+            </div>
+          </div>
+
+          {/* Card & Payment Settings Section */}
+          <div className="bg-zinc-950 p-4 rounded-xl border border-amber-500/30 space-y-3">
+            <h4 className="text-xs font-bold text-amber-400 flex items-center gap-1.5">
+              <ShieldCheck className="w-4 h-4" />
+              <span>اطلاعات حساب و کارت جهت واریز/پرداخت آنلاین مشتریان</span>
+            </h4>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <div>
+                <label className="block text-xs font-medium text-zinc-300 mb-1">شماره کارت ۱۶ رقمی</label>
+                <input
+                  type="text"
+                  value={tempSettings.cardNumber || ''}
+                  onChange={(e) => setTempSettings({ ...tempSettings, cardNumber: e.target.value })}
+                  placeholder="6037-9975-1234-5678"
+                  className="w-full bg-zinc-900 border border-zinc-800 rounded-xl px-3.5 py-2 text-xs text-amber-400 font-mono tracking-wider dir-ltr text-right"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-medium text-zinc-300 mb-1">نام و نام خانوادگی صاحب حساب/کارت</label>
+                <input
+                  type="text"
+                  value={tempSettings.cardHolderName || ''}
+                  onChange={(e) => setTempSettings({ ...tempSettings, cardHolderName: e.target.value })}
+                  placeholder="بهنام جهانی"
+                  className="w-full bg-zinc-900 border border-zinc-800 rounded-xl px-3.5 py-2 text-xs text-white"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-medium text-zinc-300 mb-1">نام بانک</label>
+                <input
+                  type="text"
+                  value={tempSettings.bankName || ''}
+                  onChange={(e) => setTempSettings({ ...tempSettings, bankName: e.target.value })}
+                  placeholder="بانک ملی ایران"
+                  className="w-full bg-zinc-900 border border-zinc-800 rounded-xl px-3.5 py-2 text-xs text-white"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-medium text-zinc-300 mb-1">شماره حساب بانکی (اختیاری)</label>
+                <input
+                  type="text"
+                  value={tempSettings.accountNumber || ''}
+                  onChange={(e) => setTempSettings({ ...tempSettings, accountNumber: e.target.value })}
+                  placeholder="0102030405006"
+                  className="w-full bg-zinc-900 border border-zinc-800 rounded-xl px-3.5 py-2 text-xs text-amber-400 font-mono dir-ltr text-right"
+                />
+              </div>
+
+              <div className="sm:col-span-2">
+                <label className="block text-xs font-medium text-zinc-300 mb-1">شماره شبا (IBAN - با IR)</label>
+                <input
+                  type="text"
+                  value={tempSettings.shebaNumber || ''}
+                  onChange={(e) => setTempSettings({ ...tempSettings, shebaNumber: e.target.value })}
+                  placeholder="IR120170000000102030405006"
+                  className="w-full bg-zinc-900 border border-zinc-800 rounded-xl px-3.5 py-2 text-xs text-amber-400 font-mono dir-ltr text-right"
+                />
+              </div>
+            </div>
+          </div>
+
+          {/* Admin Security Passcode Section */}
+          <div className="bg-zinc-950 p-4 rounded-xl border border-zinc-800 space-y-3">
+            <h4 className="text-xs font-bold text-zinc-200 flex items-center gap-1.5">
+              <Settings className="w-4 h-4 text-amber-400" />
+              <span>رمز عبور اختصاصی پنل مدیریت</span>
+            </h4>
+            <div>
+              <label className="block text-xs font-medium text-zinc-400 mb-1">رمز عبور ورود به پنل مدیریت (پیش‌فرض: 1383)</label>
+              <input
+                type="text"
+                value={tempSettings.adminPasscode || '1383'}
+                onChange={(e) => setTempSettings({ ...tempSettings, adminPasscode: e.target.value })}
+                placeholder="1383"
+                className="w-full bg-zinc-900 border border-zinc-800 rounded-xl px-3.5 py-2 text-xs text-white font-mono dir-ltr text-right"
+              />
+            </div>
+          </div>
+
+          {/* Backup & Data Export / Restore Section */}
+          <div className="bg-zinc-950 p-4 rounded-xl border border-zinc-800 space-y-3">
+            <h4 className="text-xs font-bold text-amber-400 flex items-center gap-1.5">
+              <Download className="w-4 h-4" />
+              <span>پشتیبان‌گیری کامل از اطلاعات (محصولات، سفارشات، تصاویر)</span>
+            </h4>
+            <p className="text-[11px] text-zinc-400 leading-relaxed">
+              تمام تصاویر و عکس‌های آپلود شده به صورت مستقیم درون حافظه برنامه (Base64) ذخیره می‌شوند و به هیچ عنوان خراب یا حذف نخواهند شد. برای اطمینان می‌توانید فایل پشتیبان دیتابیس را دانلود نمایید.
+            </p>
+            <div className="flex flex-wrap gap-2 pt-1">
+              <button
+                type="button"
+                onClick={() => {
+                  const backupStr = exportBackupData();
+                  const blob = new Blob([backupStr], { type: 'application/json' });
+                  const url = URL.createObjectURL(blob);
+                  const a = document.createElement('a');
+                  a.href = url;
+                  a.download = `stock-jahani-backup-${new Date().toISOString().slice(0, 10)}.json`;
+                  a.click();
+                  URL.revokeObjectURL(url);
+                  onShowToast('فایل پشتیبان کامل فروشگاه با موفقیت دانلود شد');
+                }}
+                className="bg-amber-500/10 hover:bg-amber-500/20 text-amber-400 border border-amber-500/30 px-3.5 py-2 rounded-xl text-xs font-bold flex items-center gap-1.5 transition-colors"
+              >
+                <Download className="w-4 h-4" />
+                <span>دانلود نسخه پشتیبان کامل (JSON)</span>
+              </button>
+
+              <label className="cursor-pointer bg-zinc-800 hover:bg-zinc-700 text-zinc-200 px-3.5 py-2 rounded-xl text-xs font-bold flex items-center gap-1.5 transition-colors border border-zinc-700">
+                <Upload className="w-4 h-4 text-emerald-400" />
+                <span>بازیابی اطلاعات از فایل پشتیبان</span>
+                <input
+                  type="file"
+                  accept=".json"
+                  className="hidden"
+                  onChange={(e) => {
+                    const file = e.target.files?.[0];
+                    if (!file) return;
+                    const reader = new FileReader();
+                    reader.onload = (event) => {
+                      const content = event.target?.result as string;
+                      if (content && importBackupData(content)) {
+                        onShowToast('اطلاعات با موفقیت بازیابی شد. صفحه را رفرش کنید.');
+                        setTimeout(() => window.location.reload(), 1500);
+                      } else {
+                        onShowToast('فایل پشتیبان معتبر نمی‌باشد');
+                      }
+                    };
+                    reader.readAsText(file);
+                  }}
+                />
+              </label>
+            </div>
+          </div>
+
+          <button
+            onClick={() => {
+              onSaveSettings(tempSettings);
+              onShowToast('تنظیمات فروشگاه و شماره کارت با موفقیت ذخیره شد');
+            }}
+            className="w-full bg-amber-500 hover:bg-amber-400 text-zinc-950 font-bold py-2.5 rounded-xl text-xs transition-colors shadow-lg"
+          >
+            ذخیره تغییرات تنظیمات
+          </button>
+
+        </div>
+      )}
+
+      {/* ADD / EDIT EYEWEAR PRODUCT MODAL */}
+      <AnimatePresence>
+        {isModalOpen && (
+          <div className="fixed inset-0 z-50 bg-black/85 backdrop-blur-md flex items-center justify-center p-3 sm:p-5 overflow-y-auto">
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.95 }}
+              className="relative bg-zinc-900 border border-zinc-800 rounded-2xl max-w-2xl w-full p-5 sm:p-6 shadow-2xl overflow-hidden my-auto text-right"
+            >
+              <div className="flex items-center justify-between border-b border-zinc-800 pb-3 mb-4">
+                <h3 className="text-base font-bold text-white flex items-center gap-2">
+                  <Glasses className="w-5 h-5 text-amber-400" />
+                  <span>{editingProduct ? 'ویرایش مشخصات عینک' : 'افزودن عینک جدید به ویترین'}</span>
+                </h3>
+                <button
+                  onClick={() => setIsModalOpen(false)}
+                  className="text-zinc-400 hover:text-white p-1 rounded-lg hover:bg-zinc-800"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+
+              <form onSubmit={handleSaveProductSubmit} className="space-y-4">
+                {/* Title & Code */}
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                  <div className="sm:col-span-2">
+                    <label className="block text-xs font-medium text-zinc-300 mb-1">عنوان کامل عینک *</label>
+                    <input
+                      type="text"
+                      required
+                      value={formTitle}
+                      onChange={(e) => setFormTitle(e.target.value)}
+                      placeholder="مثال: عینک آفتابی ری‌بن فریم خلبانی"
+                      className="w-full bg-zinc-950 border border-zinc-800 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-amber-500"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-medium text-zinc-300 mb-1">کد محصول</label>
+                    <input
+                      type="text"
+                      value={formCode}
+                      onChange={(e) => setFormCode(e.target.value)}
+                      placeholder="STK-101"
+                      className="w-full bg-zinc-950 border border-zinc-800 rounded-xl px-3 py-2 text-xs text-white font-mono dir-ltr text-right focus:outline-none focus:border-amber-500"
+                    />
+                  </div>
+                </div>
+
+                {/* Category & Prices */}
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                  <div>
+                    <label className="block text-xs font-medium text-zinc-300 mb-1">دسته‌بندی</label>
+                    <select
+                      value={formCategory}
+                      onChange={(e) => setFormCategory(e.target.value)}
+                      className="w-full bg-zinc-950 border border-zinc-800 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-amber-500"
+                    >
+                      {activeCategories.map((cat) => (
+                        <option key={cat.id} value={cat.id}>
+                          {cat.label}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-medium text-zinc-300 mb-1">قیمت فروش (تومان) *</label>
+                    <input
+                      type="number"
+                      required
+                      value={formPrice}
+                      onChange={(e) => setFormPrice(Number(e.target.value))}
+                      placeholder="1850000"
+                      className="w-full bg-zinc-950 border border-zinc-800 rounded-xl px-3 py-2 text-xs text-white font-mono focus:outline-none focus:border-amber-500"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-medium text-zinc-300 mb-1">قیمت اصلی/قبل تخفیف</label>
+                    <input
+                      type="number"
+                      value={formOriginalPrice}
+                      onChange={(e) => setFormOriginalPrice(Number(e.target.value))}
+                      placeholder="اختیاری"
+                      className="w-full bg-zinc-950 border border-zinc-800 rounded-xl px-3 py-2 text-xs text-white font-mono focus:outline-none focus:border-amber-500"
+                    />
+                  </div>
+                </div>
+
+                {/* Specs: Frame Type, Lens Color, Protection, Gender */}
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
+                  <div>
+                    <label className="block text-[11px] font-medium text-zinc-400 mb-1">جنس/نوع فریم</label>
+                    <input
+                      type="text"
+                      value={formFrameType}
+                      onChange={(e) => setFormFrameType(e.target.value)}
+                      placeholder="کائوچویی، فلزی..."
+                      className="w-full bg-zinc-950 border border-zinc-800 rounded-xl px-2.5 py-1.5 text-xs text-white"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-[11px] font-medium text-zinc-400 mb-1">رنگ عدسی</label>
+                    <input
+                      type="text"
+                      value={formLensColor}
+                      onChange={(e) => setFormLensColor(e.target.value)}
+                      placeholder="دودی، قهوه‌ای..."
+                      className="w-full bg-zinc-950 border border-zinc-800 rounded-xl px-2.5 py-1.5 text-xs text-white"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-[11px] font-medium text-zinc-400 mb-1">سطح محافظت</label>
+                    <input
+                      type="text"
+                      value={formUvProtection}
+                      onChange={(e) => setFormUvProtection(e.target.value)}
+                      placeholder="UV400"
+                      className="w-full bg-zinc-950 border border-zinc-800 rounded-xl px-2.5 py-1.5 text-xs text-white"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-[11px] font-medium text-zinc-400 mb-1">موجودی انبار</label>
+                    <input
+                      type="number"
+                      value={formStock}
+                      onChange={(e) => setFormStock(Number(e.target.value))}
+                      className="w-full bg-zinc-950 border border-zinc-800 rounded-xl px-2.5 py-1.5 text-xs text-white font-mono"
+                    />
+                  </div>
+                </div>
+
+                {/* Description & Features */}
+                <div>
+                  <label className="block text-xs font-medium text-zinc-300 mb-1">توضیحات عینک</label>
+                  <textarea
+                    rows={2}
+                    value={formDescription}
+                    onChange={(e) => setFormDescription(e.target.value)}
+                    placeholder="توضیحات درباره کیفیت، اصالت، ویژگی‌ها..."
+                    className="w-full bg-zinc-950 border border-zinc-800 rounded-xl px-3 py-2 text-xs text-white"
+                  />
+                </div>
+
+                {/* Image Upload Area */}
+                <div className="bg-zinc-950 border border-zinc-800 p-3.5 rounded-xl space-y-3">
+                  <label className="block text-xs font-bold text-amber-400">تصاویر عینک (آپلود عکس از سیستم یا لینک):</label>
+                  
+                  <div className="flex flex-col sm:flex-row items-center gap-2">
+                    <label className="w-full sm:w-auto cursor-pointer bg-amber-500/10 hover:bg-amber-500/20 text-amber-400 border border-amber-500/30 px-3.5 py-2 rounded-xl text-xs font-bold flex items-center justify-center gap-2 transition-colors">
+                      <Upload className="w-4 h-4" />
+                      <span>انتخاب عکس از حافظه گوشی/کامپیوتر</span>
+                      <input type="file" multiple accept="image/*" onChange={handleFileUpload} className="hidden" />
+                    </label>
+
+                    <div className="flex items-center gap-2 flex-1 w-full">
+                      <input
+                        type="url"
+                        value={imageUrlInput}
+                        onChange={(e) => setImageUrlInput(e.target.value)}
+                        placeholder="یا جایگذاری لینک اینترنتی عکس..."
+                        className="flex-1 bg-zinc-900 border border-zinc-800 rounded-xl px-3 py-2 text-xs text-white font-mono dir-ltr text-right"
+                      />
+                      <button
+                        type="button"
+                        onClick={handleAddImageUrl}
+                        className="bg-zinc-800 hover:bg-zinc-700 text-zinc-200 px-3 py-2 rounded-xl text-xs font-bold shrink-0"
+                      >
+                        افزودن لینک
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Uploaded Images Thumbnails */}
+                  {formImages.length > 0 && (
+                    <div className="flex flex-wrap gap-2 pt-2">
+                      {formImages.map((img, idx) => (
+                        <div key={idx} className="relative w-16 h-16 rounded-xl overflow-hidden border border-zinc-700 group">
+                          <img src={img} alt="" className="w-full h-full object-cover" />
+                          <button
+                            type="button"
+                            onClick={() => handleRemoveImage(idx)}
+                            className="absolute inset-0 bg-black/60 text-rose-400 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+
+                <button
+                  type="submit"
+                  className="w-full bg-amber-500 hover:bg-amber-400 text-zinc-950 font-bold py-3 rounded-xl text-xs shadow-lg transition-colors"
+                >
+                  ذخیره و انتشار عینک
+                </button>
+              </form>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+      {/* FULL RESOLUTION RECEIPT VIEWER MODAL */}
+      <AnimatePresence>
+        {viewingReceiptUrl && (
+          <div className="fixed inset-0 z-50 bg-black/90 backdrop-blur-md flex items-center justify-center p-4">
+            <motion.div
+              initial={{ opacity: 0, scale: 0.9 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.9 }}
+              className="bg-zinc-900 border border-zinc-800 rounded-2xl p-4 max-w-lg w-full max-h-[90vh] flex flex-col items-center gap-3 relative overflow-hidden"
+            >
+              <div className="flex items-center justify-between w-full border-b border-zinc-800 pb-2">
+                <span className="text-xs font-bold text-amber-400 flex items-center gap-1.5">
+                  <Eye className="w-4 h-4" />
+                  <span>تصویر کامل فیش واریزی واریز شده</span>
+                </span>
+                <button
+                  onClick={() => setViewingReceiptUrl(null)}
+                  className="text-zinc-400 hover:text-white p-1 rounded-lg hover:bg-zinc-800"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+
+              <div className="flex-1 w-full overflow-auto rounded-xl bg-zinc-950 p-2 flex items-center justify-center">
+                <img
+                  src={viewingReceiptUrl}
+                  alt="تصویر بزرگ فیش واریزی"
+                  className="max-w-full max-h-[70vh] object-contain rounded-lg"
+                />
+              </div>
+
+              <button
+                onClick={() => setViewingReceiptUrl(null)}
+                className="w-full bg-zinc-800 hover:bg-zinc-700 text-zinc-200 py-2 rounded-xl text-xs font-bold transition-colors"
+              >
+                بستن پنجره
+              </button>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+    </div>
+  );
+};
