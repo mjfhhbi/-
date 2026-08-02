@@ -1,7 +1,7 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { Order, StoreSettings } from '../types';
 import { formatToman } from '../utils/storage';
-import { X, Glasses, FileText, Check } from 'lucide-react';
+import { X, Glasses, FileText, Check, Printer, ShieldCheck, Copy } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 
 interface InvoiceModalProps {
@@ -11,7 +11,24 @@ interface InvoiceModalProps {
 }
 
 export const InvoiceModal: React.FC<InvoiceModalProps> = ({ order, settings, onClose }) => {
+  const [copiedText, setCopiedText] = useState(false);
+
   if (!order) return null;
+
+  const handlePrint = () => {
+    window.print();
+  };
+
+  const handleCopyInvoiceDetails = () => {
+    const itemsText = order.items
+      .map((i) => `• ${i.product.title} (${i.quantity} عدد) - ${formatToman(i.product.price * i.quantity)}`)
+      .join('\n');
+    const text = `🧾 فاکتور دیجیتال رسمی ${settings?.storeName || 'استوک جهانی'}\nشماره فاکتور: ${order.orderCode}\nتاریخ: ${new Date(order.createdAt).toLocaleDateString('fa-IR')}\nخریدار: ${order.customer.fullName} (${order.customer.phone})\nآدرس: ${order.customer.province} - ${order.customer.city} - ${order.customer.address}\nکدپستی: ${order.customer.postalCode}\n\nمحصولات:\n${itemsText}\n\nمبلغ کل: ${formatToman(order.finalAmount)}\nوضعیت: ${order.status === 'confirmed' ? 'تایید شده' : order.status === 'shipping' ? 'ارسال شده با پست' : 'در حال بررسی'}`;
+    
+    navigator.clipboard.writeText(text);
+    setCopiedText(true);
+    setTimeout(() => setCopiedText(false), 2000);
+  };
 
   const getStatusLabel = (status: Order['status']) => {
     switch (status) {
@@ -40,23 +57,48 @@ export const InvoiceModal: React.FC<InvoiceModalProps> = ({ order, settings, onC
           className="relative bg-zinc-900 border border-zinc-800 rounded-2xl max-w-2xl w-full p-5 sm:p-7 shadow-2xl overflow-hidden my-auto space-y-5"
         >
           {/* Action Header Bar */}
-          <div className="flex items-center justify-between border-b border-zinc-800 pb-4">
+          <div className="flex items-center justify-between border-b border-zinc-800 pb-4 print:hidden">
             <div className="flex items-center gap-2">
               <FileText className="w-5 h-5 text-amber-400" />
-              <h3 className="text-base font-bold text-white">رسید و فاکتور نهایی خرید</h3>
+              <h3 className="text-base font-bold text-white">فاکتور و رسید دیجیتال خرید</h3>
             </div>
 
-            <button
-              onClick={onClose}
-              className="bg-amber-500/10 hover:bg-amber-500/20 text-amber-400 border border-amber-500/30 px-3 py-1.5 rounded-xl text-xs font-bold flex items-center gap-1.5 transition-colors"
-            >
-              <Check className="w-4 h-4 text-emerald-400" />
-              <span>تایید و بستن</span>
-            </button>
+            <div className="flex items-center gap-2">
+              <button
+                onClick={handleCopyInvoiceDetails}
+                className="bg-zinc-800 hover:bg-zinc-700 text-zinc-200 px-3 py-1.5 rounded-xl text-xs font-bold flex items-center gap-1.5 transition-colors"
+              >
+                {copiedText ? <Check className="w-4 h-4 text-emerald-400" /> : <Copy className="w-4 h-4 text-amber-400" />}
+                <span>{copiedText ? 'کپی شد' : 'کپی خلاصه فاکتور'}</span>
+              </button>
+
+              <button
+                onClick={handlePrint}
+                className="bg-amber-500 hover:bg-amber-400 text-zinc-950 px-3.5 py-1.5 rounded-xl font-bold text-xs flex items-center gap-1.5 transition-colors shadow-lg"
+              >
+                <Printer className="w-4 h-4" />
+                <span>چاپ یا دانلود PDF</span>
+              </button>
+
+              <button
+                onClick={onClose}
+                className="bg-zinc-800 hover:bg-zinc-700 text-zinc-400 hover:text-white p-1.5 rounded-xl transition-colors"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
           </div>
 
           {/* Printable Invoice Container */}
-          <div id="printable-invoice" className="bg-white text-zinc-900 p-6 rounded-xl border border-zinc-200 space-y-5 font-sans print:p-0 print:border-none">
+          <div id="printable-invoice" className="bg-white text-zinc-900 p-6 rounded-xl border border-zinc-200 space-y-5 font-sans print:p-0 print:border-none relative">
+            
+            {/* Stamp Overlay */}
+            <div className="absolute top-10 left-10 pointer-events-none opacity-20 transform -rotate-12 border-4 border-emerald-600 rounded-full p-3 text-center text-emerald-700 font-black text-xs hidden sm:block">
+              <ShieldCheck className="w-8 h-8 mx-auto" />
+              <span>تأیید شده دیجیتال</span>
+              <span className="block text-[9px]">{settings?.storeName || 'استوک جهانی'}</span>
+            </div>
+
             {/* Invoice Header */}
             <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 border-b border-zinc-300 pb-4">
               <div className="flex items-center gap-3">
@@ -66,7 +108,7 @@ export const InvoiceModal: React.FC<InvoiceModalProps> = ({ order, settings, onC
                 <div>
                   <h2 className="text-lg font-black text-zinc-900">{settings?.storeName || 'فروشگاه عینک استوک جهانی'}</h2>
                   <p className="text-xs text-zinc-600 mt-0.5">مرکز تخصصی فروش عینک‌های اورجینال، برند و استوک اروپایی</p>
-                  <p className="text-[11px] text-zinc-500 mt-0.5 dir-ltr text-right">تلفن تماس: {settings?.storePhone || '09121234567'}</p>
+                  <p className="text-[11px] text-zinc-500 mt-0.5 dir-ltr text-right">تلفن تماس: {settings?.phone || '09120000000'}</p>
                 </div>
               </div>
 
@@ -122,7 +164,7 @@ export const InvoiceModal: React.FC<InvoiceModalProps> = ({ order, settings, onC
                       <td className="py-2.5 px-3 font-mono text-zinc-500">{idx + 1}</td>
                       <td className="py-2.5 px-3">
                         <span className="font-bold text-zinc-900 block">{item.product.title}</span>
-                        {item.product.brand && <span className="text-[10px] text-zinc-500 block">برند: {item.product.brand}</span>}
+                        {item.product.code && <span className="text-[10px] text-zinc-500 block">کد کالا: {item.product.code}</span>}
                       </td>
                       <td className="py-2.5 px-3 text-center font-bold font-mono">{item.quantity}</td>
                       <td className="py-2.5 px-3 text-left font-mono">{formatToman(item.product.price)}</td>
@@ -169,3 +211,4 @@ export const InvoiceModal: React.FC<InvoiceModalProps> = ({ order, settings, onC
     </AnimatePresence>
   );
 };
+

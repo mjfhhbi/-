@@ -26,6 +26,7 @@ interface HeaderProps {
   cartCount: number;
   onOpenCart: () => void;
   onOpenTrackerModal?: () => void;
+  onOpenSupportModal?: () => void;
   selectedCategory: CategoryType;
   onSelectCategory: (cat: CategoryType) => void;
   searchQuery: string;
@@ -42,6 +43,7 @@ export const Header: React.FC<HeaderProps> = ({
   cartCount,
   onOpenCart,
   onOpenTrackerModal,
+  onOpenSupportModal,
   selectedCategory,
   onSelectCategory,
   searchQuery,

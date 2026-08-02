@@ -28,9 +28,10 @@ import { CheckoutModal } from './components/CheckoutModal';
 import { AdminPanel } from './components/AdminPanel';
 import { CustomerOrderTrackerModal } from './components/CustomerOrderTrackerModal';
 import { InvoiceModal } from './components/InvoiceModal';
+import { SupportModal } from './components/SupportModal';
 import { Toast } from './components/Toast';
 
-import { Glasses, Plus, ShieldCheck, Sparkles, RefreshCw, ShoppingBag, Instagram, Phone, Send, Lock, X, KeyRound } from 'lucide-react';
+import { Glasses, Plus, ShieldCheck, Sparkles, RefreshCw, ShoppingBag, Instagram, Phone, Send, Lock, X, KeyRound, Headphones, MessageSquare } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 
 export default function App() {
@@ -52,6 +53,7 @@ export default function App() {
   const [isCartOpen, setIsCartOpen] = useState(false);
   const [isCheckoutOpen, setIsCheckoutOpen] = useState(false);
   const [isTrackerModalOpen, setIsTrackerModalOpen] = useState(false);
+  const [isSupportOpen, setIsSupportOpen] = useState(false);
   const [selectedInvoiceOrder, setSelectedInvoiceOrder] = useState<Order | null>(null);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
 
@@ -342,6 +344,7 @@ export default function App() {
         cartCount={totalCartCount}
         onOpenCart={() => setIsCartOpen(true)}
         onOpenTrackerModal={() => setIsTrackerModalOpen(true)}
+        onOpenSupportModal={() => setIsSupportOpen(true)}
         selectedCategory={selectedCategory}
         onSelectCategory={setSelectedCategory}
         searchQuery={searchQuery}
@@ -589,6 +592,31 @@ export default function App() {
           </div>
         )}
       </AnimatePresence>
+
+      {/* Support Modal */}
+      <SupportModal
+        isOpen={isSupportOpen}
+        onClose={() => setIsSupportOpen(false)}
+        settings={settings}
+        onShowToast={(msg) => setToastMessage(msg)}
+        onOpenTracker={() => setIsTrackerModalOpen(true)}
+      />
+
+      {/* Floating Chat & Support Button */}
+      <div className="fixed bottom-5 left-5 z-40">
+        <button
+          onClick={() => setIsSupportOpen(true)}
+          className="bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 text-zinc-950 font-black p-3.5 rounded-full shadow-2xl flex items-center gap-2 group transition-transform active:scale-95 border border-amber-400/30"
+          title="چت و پشتیبانی مستقیم با مدیریت"
+        >
+          <Headphones className="w-5 h-5 group-hover:rotate-12 transition-transform" />
+          <span className="text-xs hidden sm:inline font-bold pl-1">پشتیبانی و چت</span>
+          <span className="relative flex h-2.5 w-2.5">
+            <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+            <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-emerald-500"></span>
+          </span>
+        </button>
+      </div>
 
       {/* Floating Toast Notification */}
       <Toast message={toastMessage} onClose={() => setToastMessage(null)} />
