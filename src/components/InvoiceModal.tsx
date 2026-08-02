@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { Order, StoreSettings } from '../types';
 import { formatToman } from '../utils/storage';
-import { X, Glasses, FileText, Check, Printer, ShieldCheck, Copy } from 'lucide-react';
+import { X, Glasses, FileText, Check, ShieldCheck, Copy } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 
 interface InvoiceModalProps {
@@ -66,25 +66,17 @@ export const InvoiceModal: React.FC<InvoiceModalProps> = ({ order, settings, onC
             <div className="flex items-center gap-2">
               <button
                 onClick={handleCopyInvoiceDetails}
-                className="bg-zinc-800 hover:bg-zinc-700 text-zinc-200 px-3 py-1.5 rounded-xl text-xs font-bold flex items-center gap-1.5 transition-colors"
+                className="bg-zinc-800 hover:bg-zinc-700 text-zinc-200 px-3.5 py-1.5 rounded-xl text-xs font-bold flex items-center gap-1.5 transition-colors"
               >
                 {copiedText ? <Check className="w-4 h-4 text-emerald-400" /> : <Copy className="w-4 h-4 text-amber-400" />}
-                <span>{copiedText ? 'کپی شد' : 'کپی خلاصه فاکتور'}</span>
-              </button>
-
-              <button
-                onClick={handlePrint}
-                className="bg-amber-500 hover:bg-amber-400 text-zinc-950 px-3.5 py-1.5 rounded-xl font-bold text-xs flex items-center gap-1.5 transition-colors shadow-lg"
-              >
-                <Printer className="w-4 h-4" />
-                <span>چاپ یا دانلود PDF</span>
+                <span>{copiedText ? 'کپی شد' : 'کپی متن فاکتور'}</span>
               </button>
 
               <button
                 onClick={onClose}
-                className="bg-zinc-800 hover:bg-zinc-700 text-zinc-400 hover:text-white p-1.5 rounded-xl transition-colors"
+                className="bg-amber-500 hover:bg-amber-400 text-zinc-950 font-bold px-3.5 py-1.5 rounded-xl text-xs transition-colors shadow-md"
               >
-                <X className="w-5 h-5" />
+                تایید و بستن
               </button>
             </div>
           </div>

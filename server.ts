@@ -113,26 +113,26 @@ const DEFAULT_PRODUCTS = [
   }
 ];
 
-function initDataFile() {
-  if (!fs.existsSync(DATA_DIR)) {
-    fs.mkdirSync(DATA_DIR, { recursive: true });
-  }
-  if (!fs.existsSync(DATA_FILE)) {
-    const initial = {
-      products: DEFAULT_PRODUCTS,
-      orders: [],
-      settings: DEFAULT_SETTINGS
-    };
-    fs.writeFileSync(DATA_FILE, JSON.stringify(initial, null, 2), "utf-8");
+function getWritableDataFilePath(): string {
+  try {
+    if (!fs.existsSync(DATA_DIR)) {
+      fs.mkdirSync(DATA_DIR, { recursive: true });
+    }
+    const testFile = path.join(DATA_DIR, ".write_test");
+    fs.writeFileSync(testFile, "test");
+    fs.unlinkSync(testFile);
+    return DATA_FILE;
+  } catch (e) {
+    // Fallback to OS tmp folder if project directory is read-only
+    return path.join(require("os").tmpdir(), "stock_jahani_store.json");
   }
 }
 
-initDataFile();
-
 function readData() {
+  const filePath = getWritableDataFilePath();
   try {
-    if (fs.existsSync(DATA_FILE)) {
-      const content = fs.readFileSync(DATA_FILE, "utf-8");
+    if (fs.existsSync(filePath)) {
+      const content = fs.readFileSync(filePath, "utf-8");
       const parsed = JSON.parse(content);
       return {
         products: Array.isArray(parsed.products) ? parsed.products : DEFAULT_PRODUCTS,
@@ -141,24 +141,27 @@ function readData() {
       };
     }
   } catch (err) {
-    console.error("Error reading store.json:", err);
+    console.error("Error reading store file:", err);
   }
   return { products: DEFAULT_PRODUCTS, orders: [], settings: DEFAULT_SETTINGS };
 }
 
 function writeData(data: any) {
+  const filePath = getWritableDataFilePath();
   try {
-    if (!fs.existsSync(DATA_DIR)) {
-      fs.mkdirSync(DATA_DIR, { recursive: true });
+    const parentDir = path.dirname(filePath);
+    if (!fs.existsSync(parentDir)) {
+      fs.mkdirSync(parentDir, { recursive: true });
     }
-    fs.writeFileSync(DATA_FILE, JSON.stringify(data, null, 2), "utf-8");
+    fs.writeFileSync(filePath, JSON.stringify(data, null, 2), "utf-8");
   } catch (err) {
-    console.error("Error writing store.json:", err);
+    console.error("Error writing store file:", err);
   }
 }
 
 // API Endpoints
 app.get("/api/data", (req, res) => {
+  res.setHeader("Cache-Control", "no-cache, no-store, must-revalidate");
   const data = readData();
   res.json(data);
 });

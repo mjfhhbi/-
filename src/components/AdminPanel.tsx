@@ -1089,7 +1089,18 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
             </div>
           </div>
 
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+            <div>
+              <label className="block text-xs font-medium text-zinc-300 mb-1">آیدی تلگرام پشتیبانی</label>
+              <input
+                type="text"
+                value={tempSettings.telegram || 'stock_jahani'}
+                onChange={(e) => setTempSettings({ ...tempSettings, telegram: e.target.value })}
+                placeholder="stock_jahani"
+                className="w-full bg-zinc-950 border border-zinc-800 rounded-xl px-3.5 py-2 text-xs text-amber-400 font-mono dir-ltr text-right"
+              />
+            </div>
+
             <div>
               <label className="block text-xs font-medium text-zinc-300 mb-1">آیدی اینستاگرام</label>
               <input
@@ -1101,7 +1112,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
             </div>
 
             <div>
-              <label className="block text-xs font-medium text-zinc-300 mb-1">شماره تلفن تماس</label>
+              <label className="block text-xs font-medium text-zinc-300 mb-1">شماره تلفن تماس پشتیبانی</label>
               <input
                 type="text"
                 value={tempSettings.phone}
@@ -1111,7 +1122,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
             </div>
 
             <div>
-              <label className="block text-xs font-medium text-zinc-300 mb-1">سقف خرید برای ارسال رایگان (تومان)</label>
+              <label className="block text-xs font-medium text-zinc-300 mb-1">سقف خرید ارسال رایگان (تومان)</label>
               <input
                 type="number"
                 value={tempSettings.freeShippingThreshold}
