@@ -1,5 +1,5 @@
 import { initializeApp, getApps, getApp } from 'firebase/app';
-import { getFirestore } from 'firebase/firestore';
+import { initializeFirestore } from 'firebase/firestore';
 
 const firebaseConfig = {
   projectId: "gen-lang-client-0588900920",
@@ -12,5 +12,8 @@ const firebaseConfig = {
 
 const app = !getApps().length ? initializeApp(firebaseConfig) : getApp();
 
-// Use custom database ID from config
-export const db = getFirestore(app, "ai-studio-webcraft-e223ee03-05ed-4d15-b687-10b9744488fa");
+// Use initializeFirestore with experimentalForceLongPolling for bypass gRPC/WebSocket blocking
+export const db = initializeFirestore(app, {
+  experimentalForceLongPolling: true,
+}, "ai-studio-webcraft-e223ee03-05ed-4d15-b687-10b9744488fa");
+

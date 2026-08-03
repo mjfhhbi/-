@@ -220,6 +220,30 @@ app.post("/api/sync-all", (req, res) => {
   res.json({ success: true, data: current });
 });
 
+app.post("/api/products/delete", (req, res) => {
+  const { productId } = req.body;
+  if (!productId) {
+    return res.status(400).json({ error: "productId is required" });
+  }
+  const current = readData();
+  current.products = current.products.filter((p: any) => p.id !== productId);
+  writeData(current);
+  res.json({ success: true, count: current.products.length });
+});
+
+app.post("/api/orders/delete", (req, res) => {
+  const { orderId } = req.body;
+  if (!orderId) {
+    return res.status(400).json({ error: "orderId is required" });
+  }
+  const current = readData();
+  current.orders = current.orders.filter((o: any) => o.id !== orderId);
+  writeData(current);
+  res.json({ success: true, count: current.orders.length });
+});
+
+export default app;
+
 async function startServer() {
   if (process.env.NODE_ENV !== "production") {
     const vite = await createViteServer({

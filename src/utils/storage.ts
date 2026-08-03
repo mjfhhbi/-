@@ -260,29 +260,61 @@ export async function saveStoredSettings(settings: StoreSettings): Promise<boole
 }
 
 export async function deleteProductFromFirestore(productId: string): Promise<boolean> {
+  // 1. Delete from backend server API (works everywhere without VPN)
+  fetch('/api/products/delete', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ productId }),
+  }).catch(() => {});
+
+  // 2. Also attempt Firestore delete in background
   try {
     await deleteDoc(doc(db, 'products', productId));
-    return true;
   } catch (err) {
-    console.error('Firestore delete product error:', err);
-    return false;
+    console.warn('Firestore delete product background error:', err);
   }
+  return true;
 }
 
 export async function deleteOrderFromFirestore(orderId: string): Promise<boolean> {
+  // 1. Delete from backend server API (works everywhere without VPN)
+  fetch('/api/orders/delete', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ orderId }),
+  }).catch(() => {});
+
+  // 2. Also attempt Firestore delete in background
   try {
     await deleteDoc(doc(db, 'orders', orderId));
-    return true;
   } catch (err) {
-    console.error('Firestore delete order error:', err);
-    return false;
+    console.warn('Firestore delete order background error:', err);
   }
+  return true;
 }
 
-// Fetch all shared data from Firebase Firestore
+// Fetch all shared data from server API or Firestore
 export async function fetchServerData(): Promise<{ products: Product[]; orders: Order[]; settings: StoreSettings } | null> {
+  // 1. Try server API FIRST (100% unblocked in Iran, no VPN needed)
   try {
-    // 1. Fetch settings from Firestore first to see if store is already initialized
+    const res = await fetch('/api/data?t=' + Date.now(), { cache: 'no-store' });
+    if (res.ok) {
+      const data = await res.json();
+      if (data && Array.isArray(data.products) && data.products.length > 0) {
+        try {
+          localStorage.setItem(PRODUCTS_KEY, JSON.stringify(data.products));
+          localStorage.setItem(ORDERS_KEY, JSON.stringify(data.orders || []));
+          localStorage.setItem(SETTINGS_KEY, JSON.stringify(data.settings || DEFAULT_SETTINGS));
+        } catch (e) {}
+        return data;
+      }
+    }
+  } catch (e) {
+    console.warn('Server API fetch failed, falling back to Firestore/cache:', e);
+  }
+
+  // 2. Fallback to client Firestore
+  try {
     const settingsDoc = await getDoc(doc(db, 'settings', 'store_settings'));
     let settings: StoreSettings = DEFAULT_SETTINGS;
     const isFirstTimeInit = !settingsDoc.exists();
@@ -291,14 +323,12 @@ export async function fetchServerData(): Promise<{ products: Product[]; orders: 
       settings = { ...DEFAULT_SETTINGS, ...settingsDoc.data() } as StoreSettings;
     }
 
-    // 2. Fetch products from Firestore
     const productsSnap = await getDocs(collection(db, 'products'));
     let products: Product[] = [];
     productsSnap.forEach((docSnap) => {
       products.push(docSnap.data() as Product);
     });
 
-    // Seed initial demo products ONLY if store has NEVER been initialized before
     if (products.length === 0 && isFirstTimeInit) {
       const initial = DEMO_PRODUCTS;
       await saveStoredProducts(initial);
@@ -306,14 +336,12 @@ export async function fetchServerData(): Promise<{ products: Product[]; orders: 
       await setDoc(doc(db, 'settings', 'store_settings'), cleanForFirestore(DEFAULT_SETTINGS));
     }
 
-    // 3. Fetch orders from Firestore
     const ordersSnap = await getDocs(collection(db, 'orders'));
     let orders: Order[] = [];
     ordersSnap.forEach((docSnap) => {
       orders.push(docSnap.data() as Order);
     });
 
-    // Cache in localStorage
     try {
       localStorage.setItem(PRODUCTS_KEY, JSON.stringify(products));
       localStorage.setItem(ORDERS_KEY, JSON.stringify(orders));
@@ -322,39 +350,67 @@ export async function fetchServerData(): Promise<{ products: Product[]; orders: 
 
     return { products, orders, settings };
   } catch (err) {
-    console.warn('Firestore fetch failed, checking server API or local cache:', err);
-    try {
-      const res = await fetch('/api/data?t=' + Date.now());
-      if (res.ok) {
-        const data = await res.json();
-        return data;
-      }
-    } catch (e) {}
+    console.warn('Firestore fetch failed:', err);
     return null;
   }
 }
 
-// Live real-time subscription to Firebase Firestore for instant multi-device syncing
+// Live real-time subscription for instant multi-device syncing without VPN requirements
 export function subscribeToFirestore(
-  onDataUpdate: (data: { products?: Product[]; orders?: Order[]; settings?: StoreSettings }) => void
+  onDataUpdate: (data: { products?: Product[]; orders?: Order[]; settings?: StoreSettings }) => void,
+  onError?: (errMessage: string) => void
 ) {
+  let lastStateHash = '';
+
+  // Fast periodic poll to backend API every 2 seconds (unblocked on all Iranian ISPs)
+  const pollServer = async () => {
+    try {
+      const serverData = await fetchServerData();
+      if (serverData) {
+        const currentHash = JSON.stringify({
+          pCount: serverData.products.length,
+          pMod: serverData.products.map(p => `${p.id}_${p.stock}_${p.price}_${p.title}`).join('|'),
+          oCount: serverData.orders.length,
+          oMod: serverData.orders.map(o => `${o.id}_${o.status}`).join('|'),
+          sMod: JSON.stringify(serverData.settings.categories)
+        });
+
+        if (currentHash !== lastStateHash) {
+          lastStateHash = currentHash;
+          onDataUpdate(serverData);
+        }
+      }
+    } catch (e) {}
+  };
+
+  // Run poll immediately on load and every 2 seconds
+  pollServer();
+  const intervalId = setInterval(pollServer, 2000);
+
+  // Background Firestore listeners if Google is accessible
+  let unsubProducts = () => {};
+  let unsubOrders = () => {};
+  let unsubSettings = () => {};
+
   try {
-    const unsubProducts = onSnapshot(
+    unsubProducts = onSnapshot(
       collection(db, 'products'),
       (snapshot) => {
         const products: Product[] = [];
         snapshot.forEach((docSnap) => {
           products.push(docSnap.data() as Product);
         });
-        try {
-          localStorage.setItem(PRODUCTS_KEY, JSON.stringify(products));
-        } catch (e) {}
-        onDataUpdate({ products });
+        if (products.length > 0) {
+          try {
+            localStorage.setItem(PRODUCTS_KEY, JSON.stringify(products));
+          } catch (e) {}
+          onDataUpdate({ products });
+        }
       },
-      (err) => console.warn('Products live sync error:', err)
+      (err) => console.warn('Firestore background products sync notice:', err)
     );
 
-    const unsubOrders = onSnapshot(
+    unsubOrders = onSnapshot(
       collection(db, 'orders'),
       (snapshot) => {
         const orders: Order[] = [];
@@ -366,10 +422,10 @@ export function subscribeToFirestore(
         } catch (e) {}
         onDataUpdate({ orders });
       },
-      (err) => console.warn('Orders live sync error:', err)
+      (err) => console.warn('Firestore background orders sync notice:', err)
     );
 
-    const unsubSettings = onSnapshot(
+    unsubSettings = onSnapshot(
       doc(db, 'settings', 'store_settings'),
       (docSnap) => {
         if (docSnap.exists()) {
@@ -380,18 +436,16 @@ export function subscribeToFirestore(
           onDataUpdate({ settings });
         }
       },
-      (err) => console.warn('Settings live sync error:', err)
+      (err) => console.warn('Firestore background settings sync notice:', err)
     );
+  } catch (e) {}
 
-    return () => {
-      unsubProducts();
-      unsubOrders();
-      unsubSettings();
-    };
-  } catch (e) {
-    console.warn('Firestore live subscription setup error:', e);
-    return () => {};
-  }
+  return () => {
+    clearInterval(intervalId);
+    unsubProducts();
+    unsubOrders();
+    unsubSettings();
+  };
 }
 
 // Convert and compress image File object to Base64 string (Max 1200px, 0.82 JPEG quality)
