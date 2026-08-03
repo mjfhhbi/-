@@ -78,12 +78,14 @@ export const CartDrawer: React.FC<CartDrawerProps> = ({
               </div>
             </div>
 
-            <button
+            <motion.button
+              whileHover={{ scale: 1.1, rotate: 90 }}
+              whileTap={{ scale: 0.9 }}
               onClick={onClose}
               className="text-zinc-400 hover:text-white p-2 rounded-xl hover:bg-zinc-800 transition-colors"
             >
               <X className="w-5 h-5" />
-            </button>
+            </motion.button>
           </div>
 
           {/* Shipping Notice Banner */}
@@ -148,28 +150,34 @@ export const CartDrawer: React.FC<CartDrawerProps> = ({
 
                   {/* Quantity controls */}
                   <div className="flex flex-col items-end gap-2 shrink-0">
-                    <button
+                    <motion.button
+                      whileHover={{ scale: 1.15, rotate: -10 }}
+                      whileTap={{ scale: 0.85 }}
                       onClick={() => onRemoveItem(item.product.id)}
                       className="text-zinc-500 hover:text-rose-400 p-1 rounded transition-colors"
                       title="حذف از سبد"
                     >
                       <Trash2 className="w-4 h-4" />
-                    </button>
+                    </motion.button>
 
                     <div className="flex items-center gap-2 bg-zinc-950 border border-zinc-800 rounded-lg p-0.5">
-                      <button
+                      <motion.button
+                        whileHover={{ scale: 1.1 }}
+                        whileTap={{ scale: 0.85 }}
                         onClick={() => onUpdateQuantity(item.product.id, -1)}
-                        className="w-6 h-6 rounded bg-zinc-800 hover:bg-zinc-700 text-zinc-300 flex items-center justify-center text-xs font-bold"
+                        className="w-6 h-6 rounded bg-zinc-800 hover:bg-zinc-700 text-zinc-300 flex items-center justify-center text-xs font-bold transition-colors"
                       >
                         -
-                      </button>
+                      </motion.button>
                       <span className="w-5 text-center text-xs font-bold text-white">{item.quantity}</span>
-                      <button
+                      <motion.button
+                        whileHover={{ scale: 1.1 }}
+                        whileTap={{ scale: 0.85 }}
                         onClick={() => onUpdateQuantity(item.product.id, 1)}
-                        className="w-6 h-6 rounded bg-zinc-800 hover:bg-zinc-700 text-zinc-300 flex items-center justify-center text-xs font-bold"
+                        className="w-6 h-6 rounded bg-zinc-800 hover:bg-zinc-700 text-zinc-300 flex items-center justify-center text-xs font-bold transition-colors"
                       >
                         +
-                      </button>
+                      </motion.button>
                     </div>
                   </div>
                 </div>
@@ -195,13 +203,15 @@ export const CartDrawer: React.FC<CartDrawerProps> = ({
                 </div>
               </div>
 
-              <button
+              <motion.button
+                whileHover={{ scale: 1.02 }}
+                whileTap={{ scale: 0.97 }}
                 onClick={onProceedToCheckout}
-                className="w-full bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 text-zinc-950 py-3 rounded-xl text-sm font-extrabold flex items-center justify-center gap-2 shadow-lg shadow-amber-500/20 transition-all"
+                className="group w-full bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 text-zinc-950 py-3 rounded-xl text-sm font-extrabold flex items-center justify-center gap-2 shadow-lg shadow-amber-500/20 transition-all"
               >
                 <span>تکمیل و ثبت سفارش</span>
-                <ArrowLeft className="w-4 h-4 stroke-[2.5]" />
-              </button>
+                <ArrowLeft className="w-4 h-4 stroke-[2.5] group-hover:-translate-x-1 transition-transform duration-300" />
+              </motion.button>
             </div>
           )}
         </motion.div>

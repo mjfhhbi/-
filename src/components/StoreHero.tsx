@@ -57,20 +57,29 @@ export const StoreHero: React.FC<StoreHeroProps> = ({ settings }) => {
           transition={{ delay: 0.2 }}
           className="pt-3 grid grid-cols-2 sm:grid-cols-3 gap-3 text-xs text-zinc-300 font-medium"
         >
-          <div className="flex items-center gap-2 bg-zinc-900/80 p-2.5 rounded-xl border border-zinc-800/60">
+          <motion.div
+            whileHover={{ scale: 1.04, y: -2 }}
+            className="flex items-center gap-2 bg-zinc-900/80 p-2.5 rounded-xl border border-zinc-800/60 shadow-xs transition-colors hover:border-amber-500/30"
+          >
             <ShieldCheck className="w-4 h-4 text-amber-400 shrink-0" />
             <span>محافظت ۱۰۰٪ UV400</span>
-          </div>
+          </motion.div>
 
-          <div className="flex items-center gap-2 bg-zinc-900/80 p-2.5 rounded-xl border border-zinc-800/60">
+          <motion.div
+            whileHover={{ scale: 1.04, y: -2 }}
+            className="flex items-center gap-2 bg-zinc-900/80 p-2.5 rounded-xl border border-zinc-800/60 shadow-xs transition-colors hover:border-amber-500/30"
+          >
             <Truck className="w-4 h-4 text-amber-400 shrink-0" />
             <span>ارسال با پست پیشتاز به سراسر ایران</span>
-          </div>
+          </motion.div>
 
-          <div className="flex items-center gap-2 bg-zinc-900/80 p-2.5 rounded-xl border border-zinc-800/60 col-span-2 sm:col-span-1">
+          <motion.div
+            whileHover={{ scale: 1.04, y: -2 }}
+            className="flex items-center gap-2 bg-zinc-900/80 p-2.5 rounded-xl border border-zinc-800/60 col-span-2 sm:col-span-1 shadow-xs transition-colors hover:border-amber-500/30"
+          >
             <Glasses className="w-4 h-4 text-amber-400 shrink-0" />
             <span>تضمین سلامت فریم و عدسی</span>
-          </div>
+          </motion.div>
         </motion.div>
 
       </div>

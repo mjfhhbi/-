@@ -114,30 +114,34 @@ export const ProductCard: React.FC<ProductCardProps> = ({
 
         {/* Admin Quick Control Overlay */}
         {isAdmin && (
-          <div className="absolute inset-0 bg-zinc-950/60 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-3 backdrop-blur-xs">
+          <div className="absolute inset-0 bg-zinc-950/70 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-3 backdrop-blur-xs">
             {onEditProduct && (
-              <button
+              <motion.button
+                whileHover={{ scale: 1.1, y: -2 }}
+                whileTap={{ scale: 0.9 }}
                 onClick={(e) => {
                   e.stopPropagation();
                   onEditProduct(product);
                 }}
-                className="bg-amber-500 hover:bg-amber-400 text-zinc-950 p-2.5 rounded-xl text-xs font-bold flex items-center gap-1 shadow-lg transition-transform hover:scale-110"
+                className="bg-amber-500 hover:bg-amber-400 text-zinc-950 p-2.5 rounded-xl text-xs font-bold flex items-center gap-1.5 shadow-lg transition-colors"
               >
                 <Edit className="w-4 h-4" />
                 <span>ویرایش</span>
-              </button>
+              </motion.button>
             )}
             {onDeleteProduct && (
-              <button
+              <motion.button
+                whileHover={{ scale: 1.1, y: -2 }}
+                whileTap={{ scale: 0.9 }}
                 onClick={(e) => {
                   e.stopPropagation();
                   onDeleteProduct(product.id);
                 }}
-                className="bg-rose-600 hover:bg-rose-500 text-white p-2.5 rounded-xl text-xs font-bold flex items-center gap-1 shadow-lg transition-transform hover:scale-110"
+                className="bg-rose-600 hover:bg-rose-500 text-white p-2.5 rounded-xl text-xs font-bold flex items-center gap-1.5 shadow-lg transition-colors"
               >
                 <Trash2 className="w-4 h-4" />
                 <span>حذف</span>
-              </button>
+              </motion.button>
             )}
           </div>
         )}

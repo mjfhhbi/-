@@ -17,6 +17,8 @@ import {
   saveStoredSettings,
   fetchServerData,
   subscribeToFirestore,
+  deleteProductFromFirestore,
+  deleteOrderFromFirestore,
   DEMO_PRODUCTS
 } from './utils/storage';
 
@@ -122,6 +124,50 @@ export default function App() {
     };
   }, []);
 
+  // Auto-sync cart items with real-time product stock and removals
+  useEffect(() => {
+    if (cartItems.length === 0) return;
+
+    setCartItems((prevCart) => {
+      let hasChanges = false;
+      const updatedCart: CartItem[] = [];
+
+      for (const item of prevCart) {
+        const liveProduct = products.find((p) => p.id === item.product.id);
+
+        // 1. If product was deleted from store completely
+        if (!liveProduct) {
+          hasChanges = true;
+          showToast(`عینک "${item.product.title}" به علت حذف از فروشگاه از سبد شما برداشته شد.`);
+          continue;
+        }
+
+        // 2. If product stock is now 0 (sold out)
+        if (liveProduct.stock <= 0) {
+          hasChanges = true;
+          showToast(`عینک "${liveProduct.title}" متأسفانه همین الآن تمام شد و از سبد خرید برداشته شد.`);
+          continue;
+        }
+
+        // 3. If quantity exceeds new available stock
+        let newQty = item.quantity;
+        if (newQty > liveProduct.stock) {
+          newQty = liveProduct.stock;
+          hasChanges = true;
+          showToast(`موجودی عینک "${liveProduct.title}" تغییر کرد و تعداد آن به ${newQty} عدد تنظیم شد.`);
+        }
+
+        if (newQty !== item.quantity || item.product !== liveProduct) {
+          hasChanges = true;
+        }
+
+        updatedCart.push({ product: liveProduct, quantity: newQty });
+      }
+
+      return hasChanges ? updatedCart : prevCart;
+    });
+  }, [products]);
+
   const showToast = (msg: string) => {
     setToastMessage(msg);
     setTimeout(() => {
@@ -225,12 +271,16 @@ export default function App() {
     });
   };
 
-  const handleDeleteProduct = (productId: string) => {
+  const handleDeleteProduct = async (productId: string) => {
+    // Direct document deletion in Firestore guarantees instant real-time snapshot broadcast
+    await deleteProductFromFirestore(productId);
+
     setProducts((prev) => {
       const updated = prev.filter((p) => p.id !== productId);
       saveStoredProducts(updated).then(() => syncWithServer());
       return updated;
     });
+    showToast('عینک با موفقیت از سیستم حذف شد');
   };
 
   const handleLoadDemoProducts = () => {
@@ -315,7 +365,8 @@ export default function App() {
     showToast('مشخصات و آدرس تحویل با موفقیت به‌روزرسانی شد');
   };
 
-  const handleDeleteOrder = (orderId: string) => {
+  const handleDeleteOrder = async (orderId: string) => {
+    await deleteOrderFromFirestore(orderId);
     setOrders((prev) => {
       const updated = prev.filter((o) => o.id !== orderId);
       saveStoredOrders(updated).then(() => syncWithServer());

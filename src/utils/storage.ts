@@ -1,6 +1,6 @@
 import { Product, Order, StoreSettings, CategoryItem } from '../types';
 import { db } from '../lib/firebase';
-import { collection, getDocs, doc, setDoc, getDoc, writeBatch, onSnapshot } from 'firebase/firestore';
+import { collection, getDocs, doc, setDoc, getDoc, deleteDoc, writeBatch, onSnapshot } from 'firebase/firestore';
 
 const PRODUCTS_KEY = 'stock_jahani_products_v1';
 const ORDERS_KEY = 'stock_jahani_orders_v1';
@@ -259,43 +259,59 @@ export async function saveStoredSettings(settings: StoreSettings): Promise<boole
   return true;
 }
 
+export async function deleteProductFromFirestore(productId: string): Promise<boolean> {
+  try {
+    await deleteDoc(doc(db, 'products', productId));
+    return true;
+  } catch (err) {
+    console.error('Firestore delete product error:', err);
+    return false;
+  }
+}
+
+export async function deleteOrderFromFirestore(orderId: string): Promise<boolean> {
+  try {
+    await deleteDoc(doc(db, 'orders', orderId));
+    return true;
+  } catch (err) {
+    console.error('Firestore delete order error:', err);
+    return false;
+  }
+}
+
 // Fetch all shared data from Firebase Firestore
 export async function fetchServerData(): Promise<{ products: Product[]; orders: Order[]; settings: StoreSettings } | null> {
   try {
-    const localProducts = getStoredProducts();
+    // 1. Fetch settings from Firestore first to see if store is already initialized
+    const settingsDoc = await getDoc(doc(db, 'settings', 'store_settings'));
+    let settings: StoreSettings = DEFAULT_SETTINGS;
+    const isFirstTimeInit = !settingsDoc.exists();
 
-    // 1. Fetch products from Firestore
+    if (settingsDoc.exists()) {
+      settings = { ...DEFAULT_SETTINGS, ...settingsDoc.data() } as StoreSettings;
+    }
+
+    // 2. Fetch products from Firestore
     const productsSnap = await getDocs(collection(db, 'products'));
     let products: Product[] = [];
     productsSnap.forEach((docSnap) => {
       products.push(docSnap.data() as Product);
     });
 
-    // Seed or sync local products if Firestore is empty
-    if (products.length === 0 && localProducts.length > 0) {
-      await saveStoredProducts(localProducts);
-      products = localProducts;
-    } else if (products.length === 0) {
+    // Seed initial demo products ONLY if store has NEVER been initialized before
+    if (products.length === 0 && isFirstTimeInit) {
       const initial = DEMO_PRODUCTS;
       await saveStoredProducts(initial);
       products = initial;
+      await setDoc(doc(db, 'settings', 'store_settings'), cleanForFirestore(DEFAULT_SETTINGS));
     }
 
-    // 2. Fetch orders from Firestore
+    // 3. Fetch orders from Firestore
     const ordersSnap = await getDocs(collection(db, 'orders'));
     let orders: Order[] = [];
     ordersSnap.forEach((docSnap) => {
       orders.push(docSnap.data() as Order);
     });
-
-    // 3. Fetch settings from Firestore
-    const settingsDoc = await getDoc(doc(db, 'settings', 'store_settings'));
-    let settings: StoreSettings = DEFAULT_SETTINGS;
-    if (settingsDoc.exists()) {
-      settings = { ...DEFAULT_SETTINGS, ...settingsDoc.data() } as StoreSettings;
-    } else {
-      await setDoc(doc(db, 'settings', 'store_settings'), cleanForFirestore(DEFAULT_SETTINGS));
-    }
 
     // Cache in localStorage
     try {
@@ -330,12 +346,10 @@ export function subscribeToFirestore(
         snapshot.forEach((docSnap) => {
           products.push(docSnap.data() as Product);
         });
-        if (products.length > 0) {
-          try {
-            localStorage.setItem(PRODUCTS_KEY, JSON.stringify(products));
-          } catch (e) {}
-          onDataUpdate({ products });
-        }
+        try {
+          localStorage.setItem(PRODUCTS_KEY, JSON.stringify(products));
+        } catch (e) {}
+        onDataUpdate({ products });
       },
       (err) => console.warn('Products live sync error:', err)
     );

@@ -110,6 +110,22 @@ export const CheckoutModal: React.FC<CheckoutModalProps> = ({
 
   const handleSubmitOrder = (e: React.FormEvent) => {
     e.preventDefault();
+
+    if (items.length === 0) {
+      setErrorMessage('سبد خرید شما خالی است یا عینک‌های انتخابی شما تمام شده‌اند.');
+      return;
+    }
+
+    const outOfStockItem = items.find((item) => item.product.stock < item.quantity);
+    if (outOfStockItem) {
+      setErrorMessage(
+        outOfStockItem.product.stock <= 0
+          ? `متأسفانه عینک "${outOfStockItem.product.title}" همین الآن تمام شد و امکان ثبت سفارش آن وجود ندارد.`
+          : `موجودی عینک "${outOfStockItem.product.title}" کافی نیست (${outOfStockItem.product.stock} عدد موجود است).`
+      );
+      return;
+    }
+
     if (
       !customer.fullName.trim() || 
       !customer.phone.trim() || 
