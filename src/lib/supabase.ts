@@ -1,6 +1,10 @@
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
 
-// Get credentials from environment variables or custom localStorage settings
+// Default public Supabase project credentials provided by user
+const DEFAULT_SUPABASE_URL = 'https://ywcattnuyfeemwwlslyc.supabase.co';
+const DEFAULT_SUPABASE_ANON_KEY = 'sb_publishable_7vl7zsRujqrJfvfN_6c5xA_H9nUWU1z';
+
+// Get credentials from environment variables, custom localStorage settings, or defaults
 export function getSupabaseCredentials(): { url: string; key: string } {
   const metaEnv = (import.meta as any)?.env || {};
   const envUrl = metaEnv.VITE_SUPABASE_URL || '';
@@ -10,8 +14,8 @@ export function getSupabaseCredentials(): { url: string; key: string } {
   const localKey = localStorage.getItem('supabase_key') || '';
 
   return {
-    url: localUrl || envUrl,
-    key: localKey || envKey,
+    url: localUrl || envUrl || DEFAULT_SUPABASE_URL,
+    key: localKey || envKey || DEFAULT_SUPABASE_ANON_KEY,
   };
 }
 
