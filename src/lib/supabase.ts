@@ -82,9 +82,29 @@ CREATE POLICY "Allow public read/write products" ON products FOR ALL USING (true
 CREATE POLICY "Allow public read/write orders" ON orders FOR ALL USING (true) WITH CHECK (true);
 CREATE POLICY "Allow public read/write store_settings" ON store_settings FOR ALL USING (true) WITH CHECK (true);
 
--- Enable Realtime for all tables
-ALTER PUBLICATION supabase_realtime ADD TABLE products;
-ALTER PUBLICATION supabase_realtime ADD TABLE orders;
-ALTER PUBLICATION supabase_realtime ADD TABLE store_settings;
+-- Enable Realtime safely for all tables (prevents error if already added)
+DO $$ 
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_publication_tables 
+    WHERE pubname = 'supabase_realtime' AND tablename = 'products'
+  ) THEN
+    ALTER PUBLICATION supabase_realtime ADD TABLE products;
+  END IF;
+
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_publication_tables 
+    WHERE pubname = 'supabase_realtime' AND tablename = 'orders'
+  ) THEN
+    ALTER PUBLICATION supabase_realtime ADD TABLE orders;
+  END IF;
+
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_publication_tables 
+    WHERE pubname = 'supabase_realtime' AND tablename = 'store_settings'
+  ) THEN
+    ALTER PUBLICATION supabase_realtime ADD TABLE store_settings;
+  END IF;
+END $$;
 `;
 
