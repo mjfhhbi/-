@@ -1,6 +1,7 @@
 import { Product, Order, StoreSettings, CategoryItem } from '../types';
 import { db } from '../lib/firebase';
 import { collection, getDocs, doc, setDoc, getDoc, deleteDoc, writeBatch, onSnapshot } from 'firebase/firestore';
+import { getSupabaseClient } from '../lib/supabase';
 
 const PRODUCTS_KEY = 'stock_jahani_products_v1';
 const ORDERS_KEY = 'stock_jahani_orders_v1';
@@ -153,6 +154,20 @@ export async function saveStoredProducts(products: Product[]): Promise<boolean> 
     }
   }
 
+  // Also sync to Supabase if configured
+  const supabase = getSupabaseClient();
+  if (supabase) {
+    try {
+      if (products.length > 0) {
+        await supabase.from('products').upsert(
+          products.map((p) => ({ id: p.id, data: p, updated_at: new Date().toISOString() }))
+        );
+      }
+    } catch (sbErr) {
+      console.warn('Supabase products sync error:', sbErr);
+    }
+  }
+
   // Also sync to backend server API if available
   fetch('/api/products', {
     method: 'POST',
@@ -207,6 +222,20 @@ export async function saveStoredOrders(orders: Order[]): Promise<boolean> {
     }
   }
 
+  // Also sync to Supabase if configured
+  const supabase = getSupabaseClient();
+  if (supabase) {
+    try {
+      if (orders.length > 0) {
+        await supabase.from('orders').upsert(
+          orders.map((o) => ({ id: o.id, data: o, updated_at: new Date().toISOString() }))
+        );
+      }
+    } catch (sbErr) {
+      console.warn('Supabase orders sync error:', sbErr);
+    }
+  }
+
   // Also sync to backend server API if available
   fetch('/api/orders', {
     method: 'POST',
@@ -249,6 +278,16 @@ export async function saveStoredSettings(settings: StoreSettings): Promise<boole
     console.error('Firestore settings save error:', err);
   }
 
+  // Also sync to Supabase if configured
+  const supabase = getSupabaseClient();
+  if (supabase) {
+    try {
+      await supabase.from('store_settings').upsert({ id: 'main', data: settings, updated_at: new Date().toISOString() });
+    } catch (sbErr) {
+      console.warn('Supabase settings sync error:', sbErr);
+    }
+  }
+
   // Also sync to backend server API if available
   fetch('/api/settings', {
     method: 'POST',
@@ -260,14 +299,22 @@ export async function saveStoredSettings(settings: StoreSettings): Promise<boole
 }
 
 export async function deleteProductFromFirestore(productId: string): Promise<boolean> {
-  // 1. Delete from backend server API (works everywhere without VPN)
+  // Delete from Supabase if configured
+  const supabase = getSupabaseClient();
+  if (supabase) {
+    try {
+      await supabase.from('products').delete().eq('id', productId);
+    } catch (sbErr) {}
+  }
+
+  // Delete from backend server API (works everywhere without VPN)
   fetch('/api/products/delete', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ productId }),
   }).catch(() => {});
 
-  // 2. Also attempt Firestore delete in background
+  // Also attempt Firestore delete in background
   try {
     await deleteDoc(doc(db, 'products', productId));
   } catch (err) {
@@ -277,14 +324,22 @@ export async function deleteProductFromFirestore(productId: string): Promise<boo
 }
 
 export async function deleteOrderFromFirestore(orderId: string): Promise<boolean> {
-  // 1. Delete from backend server API (works everywhere without VPN)
+  // Delete from Supabase if configured
+  const supabase = getSupabaseClient();
+  if (supabase) {
+    try {
+      await supabase.from('orders').delete().eq('id', orderId);
+    } catch (sbErr) {}
+  }
+
+  // Delete from backend server API (works everywhere without VPN)
   fetch('/api/orders/delete', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ orderId }),
   }).catch(() => {});
 
-  // 2. Also attempt Firestore delete in background
+  // Also attempt Firestore delete in background
   try {
     await deleteDoc(doc(db, 'orders', orderId));
   } catch (err) {
@@ -293,9 +348,37 @@ export async function deleteOrderFromFirestore(orderId: string): Promise<boolean
   return true;
 }
 
-// Fetch all shared data from server API or Firestore
+// Fetch all shared data from Supabase, server API, or Firestore
 export async function fetchServerData(): Promise<{ products: Product[]; orders: Order[]; settings: StoreSettings } | null> {
-  // 1. Try server API FIRST (100% unblocked in Iran, no VPN needed)
+  // 1. Try Supabase FIRST if credentials are set (100% unblocked in Iran & works on GitHub Pages/Vercel)
+  const supabase = getSupabaseClient();
+  if (supabase) {
+    try {
+      const [pRes, oRes, sRes] = await Promise.all([
+        supabase.from('products').select('*'),
+        supabase.from('orders').select('*'),
+        supabase.from('store_settings').select('*').eq('id', 'main').maybeSingle()
+      ]);
+
+      if (!pRes.error && pRes.data && pRes.data.length > 0) {
+        const products: Product[] = pRes.data.map((row: any) => row.data || row);
+        const orders: Order[] = (!oRes.error && oRes.data) ? oRes.data.map((row: any) => row.data || row) : [];
+        const settings: StoreSettings = (!sRes.error && sRes.data) ? (sRes.data.data || sRes.data) : DEFAULT_SETTINGS;
+
+        try {
+          localStorage.setItem(PRODUCTS_KEY, JSON.stringify(products));
+          localStorage.setItem(ORDERS_KEY, JSON.stringify(orders));
+          localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings));
+        } catch (e) {}
+
+        return { products, orders, settings };
+      }
+    } catch (sbErr) {
+      console.warn('Supabase fetch failed, falling back to server API / Firestore:', sbErr);
+    }
+  }
+
+  // 2. Try server API SECOND (100% unblocked in Iran when using custom backend)
   try {
     const res = await fetch('/api/data?t=' + Date.now(), { cache: 'no-store' });
     if (res.ok) {
@@ -313,7 +396,7 @@ export async function fetchServerData(): Promise<{ products: Product[]; orders: 
     console.warn('Server API fetch failed, falling back to Firestore/cache:', e);
   }
 
-  // 2. Fallback to client Firestore
+  // 3. Fallback to client Firestore
   try {
     const settingsDoc = await getDoc(doc(db, 'settings', 'store_settings'));
     let settings: StoreSettings = DEFAULT_SETTINGS;
@@ -362,7 +445,27 @@ export function subscribeToFirestore(
 ) {
   let lastStateHash = '';
 
-  // Fast periodic poll to backend API every 2 seconds (unblocked on all Iranian ISPs)
+  // 1. Supabase Realtime Subscription if configured
+  const supabase = getSupabaseClient();
+  let supabaseChannel: any = null;
+
+  if (supabase) {
+    try {
+      supabaseChannel = supabase
+        .channel('public-store-changes')
+        .on('postgres_changes', { event: '*', schema: 'public' }, async () => {
+          const freshData = await fetchServerData();
+          if (freshData) {
+            onDataUpdate(freshData);
+          }
+        })
+        .subscribe();
+    } catch (sbRealtimeErr) {
+      console.warn('Supabase realtime channel error:', sbRealtimeErr);
+    }
+  }
+
+  // Fast periodic poll to backend API / Supabase every 2 seconds (unblocked on all Iranian ISPs)
   const pollServer = async () => {
     try {
       const serverData = await fetchServerData();
@@ -442,6 +545,11 @@ export function subscribeToFirestore(
 
   return () => {
     clearInterval(intervalId);
+    if (supabaseChannel) {
+      try {
+        supabase.removeChannel(supabaseChannel);
+      } catch (e) {}
+    }
     unsubProducts();
     unsubOrders();
     unsubSettings();
