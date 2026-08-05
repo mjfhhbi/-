@@ -107,14 +107,33 @@ function cleanForFirestore<T>(data: T): T {
   return JSON.parse(JSON.stringify(data));
 }
 
+function withTimeout<T>(promise: Promise<T>, ms: number = 2500): Promise<T> {
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => {
+      reject(new Error(`Timeout after ${ms}ms`));
+    }, ms);
+
+    promise
+      .then((res) => {
+        clearTimeout(timer);
+        resolve(res);
+      })
+      .catch((err) => {
+        clearTimeout(timer);
+        reject(err);
+      });
+  });
+}
+
 export function getStoredProducts(): Product[] {
   try {
     const data = localStorage.getItem(PRODUCTS_KEY);
-    if (!data) return [];
-    return JSON.parse(data);
+    if (!data) return DEMO_PRODUCTS;
+    const parsed = JSON.parse(data);
+    return Array.isArray(parsed) && parsed.length > 0 ? parsed : DEMO_PRODUCTS;
   } catch (err) {
     console.error('Error reading products:', err);
-    return [];
+    return DEMO_PRODUCTS;
   }
 }
 
@@ -125,55 +144,54 @@ export async function saveStoredProducts(products: Product[]): Promise<boolean> 
     console.error('Error saving products locally:', err);
   }
 
-  try {
-    const existingSnap = await getDocs(collection(db, 'products'));
-    const currentIds = new Set(products.map((p) => p.id));
-    const batch = writeBatch(db);
-
-    existingSnap.forEach((docSnap) => {
-      if (!currentIds.has(docSnap.id)) {
-        batch.delete(docSnap.ref);
-      }
-    });
-
-    products.forEach((p) => {
-      const cleanP = cleanForFirestore(p);
-      batch.set(doc(db, 'products', p.id), cleanP);
-    });
-
-    await batch.commit();
-    console.log('Saved products to Firestore successfully:', products.length);
-  } catch (err) {
-    console.error('Firestore batch product save error:', err);
-    for (const p of products) {
-      try {
-        await setDoc(doc(db, 'products', p.id), cleanForFirestore(p));
-      } catch (e) {
-        console.error('Failed individual setDoc for product:', p.id, e);
-      }
-    }
-  }
-
-  // Also sync to Supabase if configured
+  // Sync to Supabase FIRST (Unblocked in Iran, no VPN needed)
   const supabase = getSupabaseClient();
-  if (supabase) {
-    try {
-      if (products.length > 0) {
-        await supabase.from('products').upsert(
-          products.map((p) => ({ id: p.id, data: p, updated_at: new Date().toISOString() }))
-        );
+  if (supabase && products.length > 0) {
+    (async () => {
+      try {
+        await supabase
+          .from('products')
+          .upsert(products.map((p) => ({ id: p.id, data: p, updated_at: new Date().toISOString() })));
+      } catch (sbErr) {
+        console.warn('Supabase products sync error:', sbErr);
       }
-    } catch (sbErr) {
-      console.warn('Supabase products sync error:', sbErr);
-    }
+    })();
   }
 
-  // Also sync to backend server API if available
+  // Sync to Server API
   fetch('/api/products', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ products }),
   }).catch(() => {});
+
+  // Non-blocking background Firestore save (never hangs if Google is filtered without VPN)
+  (async () => {
+    try {
+      const existingSnap = await withTimeout(getDocs(collection(db, 'products')), 2500);
+      const currentIds = new Set(products.map((p) => p.id));
+      const batch = writeBatch(db);
+
+      existingSnap.forEach((docSnap) => {
+        if (!currentIds.has(docSnap.id)) {
+          batch.delete(docSnap.ref);
+        }
+      });
+
+      products.forEach((p) => {
+        const cleanP = cleanForFirestore(p);
+        batch.set(doc(db, 'products', p.id), cleanP);
+      });
+
+      await batch.commit();
+    } catch (err) {
+      for (const p of products) {
+        try {
+          await setDoc(doc(db, 'products', p.id), cleanForFirestore(p));
+        } catch (e) {}
+      }
+    }
+  })();
 
   return true;
 }
@@ -189,59 +207,152 @@ export function getStoredOrders(): Order[] {
   }
 }
 
+// Helper to merge order lists seamlessly without losing any order across devices
+export function mergeOrdersList(...lists: Order[][]): Order[] {
+  const map = new Map<string, Order>();
+  for (const list of lists) {
+    if (!Array.isArray(list)) continue;
+    for (const order of list) {
+      if (!order || !order.id) continue;
+      const existing = map.get(order.id);
+      if (!existing) {
+        map.set(order.id, order);
+      } else {
+        const existingTime = new Date(existing.updatedAt || existing.createdAt || 0).getTime();
+        const newTime = new Date(order.updatedAt || order.createdAt || 0).getTime();
+        if (newTime >= existingTime) {
+          map.set(order.id, { ...existing, ...order });
+        } else {
+          map.set(order.id, { ...order, ...existing });
+        }
+      }
+    }
+  }
+  return Array.from(map.values()).sort((a, b) =>
+    new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime()
+  );
+}
+
+// Pending offline/hybrid sync queue
+const PENDING_ORDERS_KEY = 'pending_sync_orders';
+
+export function enqueuePendingOrders(orders: Order[]) {
+  try {
+    const existingStr = localStorage.getItem(PENDING_ORDERS_KEY);
+    const existing: Order[] = existingStr ? JSON.parse(existingStr) : [];
+    const merged = mergeOrdersList(existing, orders);
+    localStorage.setItem(PENDING_ORDERS_KEY, JSON.stringify(merged));
+  } catch (e) {}
+}
+
+export async function processPendingSyncQueue() {
+  try {
+    const pendingStr = localStorage.getItem(PENDING_ORDERS_KEY);
+    if (!pendingStr) return;
+    const pendingOrders: Order[] = JSON.parse(pendingStr);
+    if (!Array.isArray(pendingOrders) || pendingOrders.length === 0) return;
+
+    let synced = false;
+
+    // 1. Try Supabase (100% unblocked in Iran, no VPN needed)
+    const supabase = getSupabaseClient();
+    if (supabase) {
+      try {
+        const { error } = await supabase.from('orders').upsert(
+          pendingOrders.map((o) => ({ id: o.id, data: o, updated_at: new Date().toISOString() }))
+        );
+        if (!error) synced = true;
+      } catch (e) {}
+    }
+
+    // 2. Try Server API
+    try {
+      const res = await fetch('/api/orders', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ orders: pendingOrders }),
+      });
+      if (res.ok) synced = true;
+    } catch (e) {}
+
+    // 3. Try Firestore if accessible
+    try {
+      for (const o of pendingOrders) {
+        await setDoc(doc(db, 'orders', o.id), cleanForFirestore(o));
+      }
+      synced = true;
+    } catch (e) {}
+
+    if (synced) {
+      localStorage.removeItem(PENDING_ORDERS_KEY);
+      console.log('Pending orders successfully synced in background!');
+    }
+  } catch (e) {}
+}
+
 export async function saveStoredOrders(orders: Order[]): Promise<boolean> {
+  // 1. Synchronous immediate local storage update (0ms delay for user UI)
   try {
     localStorage.setItem(ORDERS_KEY, JSON.stringify(orders));
   } catch (err) {
-    console.error('Error saving orders:', err);
+    console.error('Error saving orders locally:', err);
   }
 
-  try {
-    const existingSnap = await getDocs(collection(db, 'orders'));
-    const currentIds = new Set(orders.map((o) => o.id));
-    const batch = writeBatch(db);
-
-    existingSnap.forEach((docSnap) => {
-      if (!currentIds.has(docSnap.id)) {
-        batch.delete(docSnap.ref);
-      }
-    });
-
-    orders.forEach((o) => {
-      const cleanO = cleanForFirestore(o);
-      batch.set(doc(db, 'orders', o.id), cleanO);
-    });
-
-    await batch.commit();
-  } catch (err) {
-    console.error('Firestore orders save error:', err);
-    for (const o of orders) {
-      try {
-        await setDoc(doc(db, 'orders', o.id), cleanForFirestore(o));
-      } catch (e) {}
-    }
-  }
-
-  // Also sync to Supabase if configured
+  // 2. Immediate Supabase sync (Unblocked in Iran, no VPN needed)
   const supabase = getSupabaseClient();
-  if (supabase) {
-    try {
-      if (orders.length > 0) {
-        await supabase.from('orders').upsert(
-          orders.map((o) => ({ id: o.id, data: o, updated_at: new Date().toISOString() }))
-        );
+  if (supabase && orders.length > 0) {
+    (async () => {
+      try {
+        const { error } = await supabase
+          .from('orders')
+          .upsert(orders.map((o) => ({ id: o.id, data: o, updated_at: new Date().toISOString() })));
+        if (error) {
+          console.warn('Supabase order save warning:', error);
+          enqueuePendingOrders(orders);
+        }
+      } catch (err) {
+        console.warn('Supabase order save network error:', err);
+        enqueuePendingOrders(orders);
       }
-    } catch (sbErr) {
-      console.warn('Supabase orders sync error:', sbErr);
-    }
+    })();
   }
 
-  // Also sync to backend server API if available
+  // 3. Immediate Server API sync (/api/orders)
   fetch('/api/orders', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ orders }),
-  }).catch(() => {});
+  }).catch(() => {
+    enqueuePendingOrders(orders);
+  });
+
+  // 4. Non-blocking background Firestore sync (never freezes if Google is filtered without VPN)
+  (async () => {
+    try {
+      const existingSnap = await withTimeout(getDocs(collection(db, 'orders')), 2500);
+      const currentIds = new Set(orders.map((o) => o.id));
+      const batch = writeBatch(db);
+
+      existingSnap.forEach((docSnap) => {
+        if (!currentIds.has(docSnap.id)) {
+          batch.delete(docSnap.ref);
+        }
+      });
+
+      orders.forEach((o) => {
+        const cleanO = cleanForFirestore(o);
+        batch.set(doc(db, 'orders', o.id), cleanO);
+      });
+
+      await batch.commit();
+    } catch (err) {
+      for (const o of orders) {
+        try {
+          await setDoc(doc(db, 'orders', o.id), cleanForFirestore(o));
+        } catch (e) {}
+      }
+    }
+  })();
 
   return true;
 }
@@ -269,31 +380,32 @@ export async function saveStoredSettings(settings: StoreSettings): Promise<boole
   try {
     localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings));
   } catch (err) {
-    console.error('Error saving settings:', err);
+    console.error('Error saving settings locally:', err);
   }
 
-  try {
-    await setDoc(doc(db, 'settings', 'store_settings'), cleanForFirestore(settings));
-  } catch (err) {
-    console.error('Firestore settings save error:', err);
-  }
-
-  // Also sync to Supabase if configured
+  // Sync to Supabase FIRST (Unblocked in Iran, no VPN needed)
   const supabase = getSupabaseClient();
   if (supabase) {
-    try {
-      await supabase.from('store_settings').upsert({ id: 'main', data: settings, updated_at: new Date().toISOString() });
-    } catch (sbErr) {
-      console.warn('Supabase settings sync error:', sbErr);
-    }
+    (async () => {
+      try {
+        await supabase
+          .from('store_settings')
+          .upsert({ id: 'main', data: settings, updated_at: new Date().toISOString() });
+      } catch (sbErr) {
+        console.warn('Supabase settings sync error:', sbErr);
+      }
+    })();
   }
 
-  // Also sync to backend server API if available
+  // Sync to Server API
   fetch('/api/settings', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ settings }),
   }).catch(() => {});
+
+  // Background non-blocking Firestore sync
+  setDoc(doc(db, 'settings', 'store_settings'), cleanForFirestore(settings)).catch(() => {});
 
   return true;
 }
@@ -348,94 +460,114 @@ export async function deleteOrderFromFirestore(orderId: string): Promise<boolean
   return true;
 }
 
-// Fetch all shared data from Supabase, server API, or Firestore
-export async function fetchServerData(): Promise<{ products: Product[]; orders: Order[]; settings: StoreSettings } | null> {
-  // 1. Try Supabase FIRST if credentials are set (100% unblocked in Iran & works on GitHub Pages/Vercel)
+// Fetch all shared data from Supabase, server API, or Firestore and merge seamlessly
+export async function fetchServerData(): Promise<{ products: Product[]; orders: Order[]; settings: StoreSettings }> {
+  // Process any pending offline/network retry queue first
+  processPendingSyncQueue();
+
+  const localProducts = getStoredProducts();
+  const localOrders = getStoredOrders();
+  const localSettings = getStoredSettings();
+
+  let fetchedProducts: Product[] = [];
+  let fetchedOrders: Order[] = [];
+  let fetchedSettings: StoreSettings = localSettings;
+
+  // 1. Try Supabase FIRST with a strict 2.5s timeout (100% unblocked in Iran, no VPN needed)
   const supabase = getSupabaseClient();
   if (supabase) {
     try {
-      const [pRes, oRes, sRes] = await Promise.all([
+      const sbPromise = Promise.all([
         supabase.from('products').select('*'),
         supabase.from('orders').select('*'),
         supabase.from('store_settings').select('*').eq('id', 'main').maybeSingle()
       ]);
 
+      const [pRes, oRes, sRes] = await withTimeout(sbPromise, 2500);
+
       if (!pRes.error && pRes.data && pRes.data.length > 0) {
-        const products: Product[] = pRes.data.map((row: any) => row.data || row);
-        const orders: Order[] = (!oRes.error && oRes.data) ? oRes.data.map((row: any) => row.data || row) : [];
-        const settings: StoreSettings = (!sRes.error && sRes.data) ? (sRes.data.data || sRes.data) : DEFAULT_SETTINGS;
-
-        try {
-          localStorage.setItem(PRODUCTS_KEY, JSON.stringify(products));
-          localStorage.setItem(ORDERS_KEY, JSON.stringify(orders));
-          localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings));
-        } catch (e) {}
-
-        return { products, orders, settings };
+        fetchedProducts = pRes.data.map((row: any) => row.data || row);
+      }
+      if (!oRes.error && oRes.data) {
+        fetchedOrders = oRes.data.map((row: any) => row.data || row);
+      }
+      if (!sRes.error && sRes.data) {
+        fetchedSettings = { ...localSettings, ...(sRes.data.data || sRes.data) };
       }
     } catch (sbErr) {
-      console.warn('Supabase fetch failed, falling back to server API / Firestore:', sbErr);
+      console.warn('Supabase fetch timed out or failed:', sbErr);
     }
   }
 
-  // 2. Try server API SECOND (100% unblocked in Iran when using custom backend)
+  // 2. Try Server API SECOND with a 2s timeout
   try {
-    const res = await fetch('/api/data?t=' + Date.now(), { cache: 'no-store' });
-    if (res.ok) {
-      const data = await res.json();
-      if (data && Array.isArray(data.products) && data.products.length > 0) {
-        try {
-          localStorage.setItem(PRODUCTS_KEY, JSON.stringify(data.products));
-          localStorage.setItem(ORDERS_KEY, JSON.stringify(data.orders || []));
-          localStorage.setItem(SETTINGS_KEY, JSON.stringify(data.settings || DEFAULT_SETTINGS));
-        } catch (e) {}
-        return data;
+    const apiPromise = fetch('/api/data?t=' + Date.now(), { cache: 'no-store' }).then(r => r.ok ? r.json() : null);
+    const data = await withTimeout(apiPromise, 2000);
+    if (data) {
+      if (Array.isArray(data.products) && data.products.length > 0 && fetchedProducts.length === 0) {
+        fetchedProducts = data.products;
+      }
+      if (Array.isArray(data.orders) && data.orders.length > 0) {
+        fetchedOrders = mergeOrdersList(fetchedOrders, data.orders);
       }
     }
   } catch (e) {
-    console.warn('Server API fetch failed, falling back to Firestore/cache:', e);
+    console.warn('Server API fetch failed or timed out:', e);
   }
 
-  // 3. Fallback to client Firestore
+  // 3. Try client Firestore with a 2s timeout (if VPN is active)
   try {
-    const settingsDoc = await getDoc(doc(db, 'settings', 'store_settings'));
-    let settings: StoreSettings = DEFAULT_SETTINGS;
-    const isFirstTimeInit = !settingsDoc.exists();
+    const fsPromise = (async () => {
+      const settingsDoc = await getDoc(doc(db, 'settings', 'store_settings'));
+      let settings: StoreSettings = localSettings;
+      if (settingsDoc.exists()) {
+        settings = { ...DEFAULT_SETTINGS, ...settingsDoc.data() } as StoreSettings;
+      }
 
-    if (settingsDoc.exists()) {
-      settings = { ...DEFAULT_SETTINGS, ...settingsDoc.data() } as StoreSettings;
+      const productsSnap = await getDocs(collection(db, 'products'));
+      let products: Product[] = [];
+      productsSnap.forEach((docSnap) => {
+        products.push(docSnap.data() as Product);
+      });
+
+      const ordersSnap = await getDocs(collection(db, 'orders'));
+      let orders: Order[] = [];
+      ordersSnap.forEach((docSnap) => {
+        orders.push(docSnap.data() as Order);
+      });
+
+      return { products, orders, settings };
+    })();
+
+    const fsData = await withTimeout(fsPromise, 2000);
+    if (fsData) {
+      if (fsData.products.length > 0 && fetchedProducts.length === 0) {
+        fetchedProducts = fsData.products;
+      }
+      if (fsData.orders.length > 0) {
+        fetchedOrders = mergeOrdersList(fetchedOrders, fsData.orders);
+      }
     }
-
-    const productsSnap = await getDocs(collection(db, 'products'));
-    let products: Product[] = [];
-    productsSnap.forEach((docSnap) => {
-      products.push(docSnap.data() as Product);
-    });
-
-    if (products.length === 0 && isFirstTimeInit) {
-      const initial = DEMO_PRODUCTS;
-      await saveStoredProducts(initial);
-      products = initial;
-      await setDoc(doc(db, 'settings', 'store_settings'), cleanForFirestore(DEFAULT_SETTINGS));
-    }
-
-    const ordersSnap = await getDocs(collection(db, 'orders'));
-    let orders: Order[] = [];
-    ordersSnap.forEach((docSnap) => {
-      orders.push(docSnap.data() as Order);
-    });
-
-    try {
-      localStorage.setItem(PRODUCTS_KEY, JSON.stringify(products));
-      localStorage.setItem(ORDERS_KEY, JSON.stringify(orders));
-      localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings));
-    } catch (e) {}
-
-    return { products, orders, settings };
   } catch (err) {
-    console.warn('Firestore fetch failed:', err);
-    return null;
+    console.warn('Firestore fetch timed out or failed:', err);
   }
+
+  // Combine ALL order sources so no order placed with or without VPN is ever lost!
+  const finalOrders = mergeOrdersList(localOrders, fetchedOrders);
+  const finalProducts = fetchedProducts.length > 0 ? fetchedProducts : localProducts;
+  const finalSettings = fetchedSettings || localSettings;
+
+  try {
+    localStorage.setItem(PRODUCTS_KEY, JSON.stringify(finalProducts));
+    localStorage.setItem(ORDERS_KEY, JSON.stringify(finalOrders));
+    localStorage.setItem(SETTINGS_KEY, JSON.stringify(finalSettings));
+  } catch (e) {}
+
+  return {
+    products: finalProducts,
+    orders: finalOrders,
+    settings: finalSettings,
+  };
 }
 
 // Live real-time subscription for instant multi-device syncing without VPN requirements

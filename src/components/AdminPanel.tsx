@@ -1283,6 +1283,20 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
             </div>
           </div>
 
+          {/* Explanation Box for Iran VPN & GitHub Pages deployment */}
+          <div className="bg-amber-500/10 border border-amber-500/30 p-3.5 rounded-xl text-xs text-amber-200 leading-relaxed space-y-1">
+            <div className="font-bold text-amber-400 flex items-center gap-1.5">
+              <Globe className="w-4 h-4" />
+              <span>💡 دلیل نیاز به فیلترشکن در لینک پیش‌نمایش و راهکار اجرای بدون فیلترشکن:</span>
+            </div>
+            <p>
+              <strong>۱. لینک پیش‌نمایش فعلی:</strong> دامنه این صفحه مربوط به سرور ابری Google Cloud Run (پسوند <code className="text-amber-300">*.run.app</code>) است که توسط اپراتورهای ایران (همراه اول، ایرانسل و...) فیلتر شده است؛ به همین دلیل باز کردن این محیط پیش‌نمایش نیاز به فیلترشکن دارد.
+            </p>
+            <p>
+              <strong>۲. اجرای ۱۰۰٪ بدون فیلترشکن روی GitHub Pages:</strong> وقتی پروژه را روی GitHub Pages (دامنه <code className="text-emerald-300">*.github.io</code>) یا Vercel یا دامنه خودتان قرار دهید، سایت <strong>بدون نیاز به هیچ‌گونه فیلترشکنی روی تمام گوشی‌ها و اپراتورهای ایران باز می‌شود</strong> و اطلاعات محصولات و سفارشات را بدون فیلترشکن با Supabase همگام‌سازی می‌کند.
+            </p>
+          </div>
+
           {/* Supabase Integration Section for Unblocked GitHub Pages / Vercel deployment */}
           <div className="bg-zinc-950 p-4 rounded-xl border border-emerald-500/30 space-y-3">
             <div className="flex items-center justify-between">
