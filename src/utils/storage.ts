@@ -473,7 +473,7 @@ export async function fetchServerData(): Promise<{ products: Product[]; orders: 
   let fetchedOrders: Order[] = [];
   let fetchedSettings: StoreSettings = localSettings;
 
-  // 1. Try Supabase FIRST with a strict 2.5s timeout (100% unblocked in Iran, no VPN needed)
+  // 1. Try Supabase FIRST with a strict 2s timeout (100% unblocked in Iran, no VPN needed)
   const supabase = getSupabaseClient();
   if (supabase) {
     try {
@@ -483,7 +483,7 @@ export async function fetchServerData(): Promise<{ products: Product[]; orders: 
         supabase.from('store_settings').select('*').eq('id', 'main').maybeSingle()
       ]);
 
-      const [pRes, oRes, sRes] = await withTimeout(sbPromise, 2500);
+      const [pRes, oRes, sRes] = await withTimeout(sbPromise, 2000);
 
       if (!pRes.error && pRes.data && pRes.data.length > 0) {
         fetchedProducts = pRes.data.map((row: any) => row.data || row);
@@ -499,10 +499,10 @@ export async function fetchServerData(): Promise<{ products: Product[]; orders: 
     }
   }
 
-  // 2. Try Server API SECOND with a 2s timeout
+  // 2. Try Server API SECOND with a 1.5s timeout
   try {
     const apiPromise = fetch('/api/data?t=' + Date.now(), { cache: 'no-store' }).then(r => r.ok ? r.json() : null);
-    const data = await withTimeout(apiPromise, 2000);
+    const data = await withTimeout(apiPromise, 1500);
     if (data) {
       if (Array.isArray(data.products) && data.products.length > 0 && fetchedProducts.length === 0) {
         fetchedProducts = data.products;
@@ -515,41 +515,43 @@ export async function fetchServerData(): Promise<{ products: Product[]; orders: 
     console.warn('Server API fetch failed or timed out:', e);
   }
 
-  // 3. Try client Firestore with a 2s timeout (if VPN is active)
-  try {
-    const fsPromise = (async () => {
-      const settingsDoc = await getDoc(doc(db, 'settings', 'store_settings'));
-      let settings: StoreSettings = localSettings;
-      if (settingsDoc.exists()) {
-        settings = { ...DEFAULT_SETTINGS, ...settingsDoc.data() } as StoreSettings;
+  // 3. Try client Firestore ONLY if Supabase or Server API returned no products/data (i.e. VPN fallback)
+  if (fetchedProducts.length === 0 && fetchedOrders.length === 0) {
+    try {
+      const fsPromise = (async () => {
+        const settingsDoc = await getDoc(doc(db, 'settings', 'store_settings'));
+        let settings: StoreSettings = localSettings;
+        if (settingsDoc.exists()) {
+          settings = { ...DEFAULT_SETTINGS, ...settingsDoc.data() } as StoreSettings;
+        }
+
+        const productsSnap = await getDocs(collection(db, 'products'));
+        let products: Product[] = [];
+        productsSnap.forEach((docSnap) => {
+          products.push(docSnap.data() as Product);
+        });
+
+        const ordersSnap = await getDocs(collection(db, 'orders'));
+        let orders: Order[] = [];
+        ordersSnap.forEach((docSnap) => {
+          orders.push(docSnap.data() as Order);
+        });
+
+        return { products, orders, settings };
+      })();
+
+      const fsData = await withTimeout(fsPromise, 1500);
+      if (fsData) {
+        if (fsData.products.length > 0 && fetchedProducts.length === 0) {
+          fetchedProducts = fsData.products;
+        }
+        if (fsData.orders.length > 0) {
+          fetchedOrders = mergeOrdersList(fetchedOrders, fsData.orders);
+        }
       }
-
-      const productsSnap = await getDocs(collection(db, 'products'));
-      let products: Product[] = [];
-      productsSnap.forEach((docSnap) => {
-        products.push(docSnap.data() as Product);
-      });
-
-      const ordersSnap = await getDocs(collection(db, 'orders'));
-      let orders: Order[] = [];
-      ordersSnap.forEach((docSnap) => {
-        orders.push(docSnap.data() as Order);
-      });
-
-      return { products, orders, settings };
-    })();
-
-    const fsData = await withTimeout(fsPromise, 2000);
-    if (fsData) {
-      if (fsData.products.length > 0 && fetchedProducts.length === 0) {
-        fetchedProducts = fsData.products;
-      }
-      if (fsData.orders.length > 0) {
-        fetchedOrders = mergeOrdersList(fetchedOrders, fsData.orders);
-      }
+    } catch (err) {
+      console.warn('Firestore fetch timed out or failed:', err);
     }
-  } catch (err) {
-    console.warn('Firestore fetch timed out or failed:', err);
   }
 
   // Combine ALL order sources so no order placed with or without VPN is ever lost!

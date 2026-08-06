@@ -68,18 +68,27 @@ export default function App() {
 
   // Initialize data on mount & detect view from URL search query (?view=admin or ?view=store)
   // Sync with central backend server
+  const isSyncingRef = React.useRef(false);
   const syncWithServer = async () => {
-    const serverData = await fetchServerData();
-    if (serverData) {
-      if (Array.isArray(serverData.products)) {
-        setProducts(serverData.products);
+    if (isSyncingRef.current) return;
+    isSyncingRef.current = true;
+    try {
+      const serverData = await fetchServerData();
+      if (serverData) {
+        if (Array.isArray(serverData.products) && serverData.products.length > 0) {
+          setProducts(serverData.products);
+        }
+        if (Array.isArray(serverData.orders)) {
+          setOrders(serverData.orders);
+        }
+        if (serverData.settings) {
+          setSettings(serverData.settings);
+        }
       }
-      if (Array.isArray(serverData.orders)) {
-        setOrders(serverData.orders);
-      }
-      if (serverData.settings) {
-        setSettings(serverData.settings);
-      }
+    } catch (e) {
+      console.warn('Sync error:', e);
+    } finally {
+      isSyncingRef.current = false;
     }
   };
 

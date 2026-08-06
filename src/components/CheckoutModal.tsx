@@ -141,7 +141,7 @@ export const CheckoutModal: React.FC<CheckoutModalProps> = ({
       return;
     }
 
-    if (!receiptImage) {
+    if (paymentMethod === 'card_to_card' && !receiptImage) {
       setErrorMessage('لطفاً ابتدا تصویر فیش یا رسید واریزی کارت به کارت را آپلود کنید تا ثبت سفارش مجاز شود.');
       return;
     }
@@ -156,6 +156,9 @@ export const CheckoutModal: React.FC<CheckoutModalProps> = ({
     setIsSubmitting(true);
     setErrorMessage('');
 
+    const isOnline = paymentMethod === 'online_gateway';
+    const bankRefId = isOnline ? `ZP-${Math.floor(10000000 + Math.random() * 90000000)}` : undefined;
+
     const newOrder: Order = {
       id: Date.now().toString(),
       orderCode: generateOrderCode(),
@@ -166,9 +169,16 @@ export const CheckoutModal: React.FC<CheckoutModalProps> = ({
       finalAmount,
       customer,
       paymentMethod,
-      paymentReceipt: receiptImage,
-      adminNote: transactionCodeInput ? `کد پیگیری واریز مشتری: ${transactionCodeInput}` : undefined,
-      status: 'pending',
+      paymentReceipt: isOnline ? undefined : receiptImage,
+      isPaid: isOnline,
+      paymentRefId: bankRefId,
+      paymentGatewayName: isOnline ? 'درگاه آنلاین شتاب (زرین‌پال)' : undefined,
+      adminNote: isOnline
+        ? `پرداخت آنلاین موفق شتاب - کد پیگیری بانک: ${bankRefId}`
+        : transactionCodeInput
+        ? `کد پیگیری واریز کارت به کارت: ${transactionCodeInput}`
+        : undefined,
+      status: isOnline ? 'confirmed' : 'pending',
     };
 
     setTimeout(() => {
@@ -346,90 +356,165 @@ export const CheckoutModal: React.FC<CheckoutModalProps> = ({
                 </div>
               </div>
 
-              {/* Card to card payment details */}
+              {/* Payment Method Selector Tabs */}
               <div className="pt-2">
-                <div className="flex items-center justify-between mb-2">
-                  <label className="text-xs font-bold text-zinc-200 flex items-center gap-1.5">
-                    <CreditCard className="w-4 h-4 text-amber-400" />
-                    <span>روش پرداخت: کارت به کارت مستقیم</span>
-                  </label>
-                  <span className="text-[10px] bg-amber-500/10 text-amber-400 border border-amber-500/20 px-2 py-0.5 rounded-full font-bold">
-                    تایید سریع واریزی
-                  </span>
+                <label className="block text-xs font-bold text-zinc-200 mb-2 flex items-center gap-1.5">
+                  <CreditCard className="w-4 h-4 text-amber-400" />
+                  <span>انتخاب روش پرداخت:</span>
+                </label>
+
+                <div className="grid grid-cols-2 gap-2 mb-3">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setPaymentMethod('card_to_card');
+                      setErrorMessage('');
+                    }}
+                    className={`p-3 rounded-xl border text-right transition-all flex flex-col justify-between space-y-1 ${
+                      paymentMethod === 'card_to_card'
+                        ? 'bg-amber-500/10 border-amber-500 text-amber-300 shadow-md ring-1 ring-amber-500/30'
+                        : 'bg-zinc-950 border-zinc-800 text-zinc-400 hover:border-zinc-700'
+                    }`}
+                  >
+                    <div className="flex items-center justify-between w-full">
+                      <span className="text-xs font-bold flex items-center gap-1.5">
+                        <CreditCard className="w-4 h-4 text-amber-400" />
+                        <span>کارت به کارت</span>
+                      </span>
+                      {paymentMethod === 'card_to_card' && (
+                        <CheckCircle2 className="w-4 h-4 text-amber-400" />
+                      )}
+                    </div>
+                    <span className="text-[10px] text-zinc-400">واریز و آپلود عکس فیش</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setPaymentMethod('online_gateway');
+                      setErrorMessage('');
+                    }}
+                    className={`p-3 rounded-xl border text-right transition-all flex flex-col justify-between space-y-1 ${
+                      paymentMethod === 'online_gateway'
+                        ? 'bg-emerald-500/10 border-emerald-500 text-emerald-300 shadow-md ring-1 ring-emerald-500/30'
+                        : 'bg-zinc-950 border-zinc-800 text-zinc-400 hover:border-zinc-700'
+                    }`}
+                  >
+                    <div className="flex items-center justify-between w-full">
+                      <span className="text-xs font-bold flex items-center gap-1.5">
+                        <ShieldCheck className="w-4 h-4 text-emerald-400" />
+                        <span>درگاه آنلاین (زرین‌پال)</span>
+                      </span>
+                      {paymentMethod === 'online_gateway' && (
+                        <CheckCircle2 className="w-4 h-4 text-emerald-400" />
+                      )}
+                    </div>
+                    <span className="text-[10px] text-emerald-400 font-bold">پرداخت آنی تمام کارت‌های شتاب</span>
+                  </button>
                 </div>
 
-                <div className="bg-zinc-950 border border-amber-500/30 p-4 rounded-xl space-y-3.5 text-xs">
-                  <div className="flex items-center justify-between border-b border-zinc-800 pb-3">
-                    <div>
-                      <span className="text-[11px] text-zinc-400 block">شماره کارت جهت واریز:</span>
-                      <span className="text-sm font-black text-amber-400 font-mono tracking-wider dir-ltr text-right block mt-0.5">
-                        {settings?.cardNumber || '6037-9975-1234-5678'}
-                      </span>
-                      <span className="text-xs text-zinc-300 font-bold mt-0.5 block">
-                        به نام: {settings?.cardHolderName || 'بهنام جهانی'} {settings?.bankName ? `(${settings.bankName})` : ''}
-                      </span>
+                {/* Card to card payment details */}
+                {paymentMethod === 'card_to_card' ? (
+                  <div className="bg-zinc-950 border border-amber-500/30 p-4 rounded-xl space-y-3.5 text-xs">
+                    <div className="flex items-center justify-between border-b border-zinc-800 pb-3">
+                      <div>
+                        <span className="text-[11px] text-zinc-400 block">شماره کارت جهت واریز:</span>
+                        <span className="text-sm font-black text-amber-400 font-mono tracking-wider dir-ltr text-right block mt-0.5">
+                          {settings?.cardNumber || '6037-9975-1234-5678'}
+                        </span>
+                        <span className="text-xs text-zinc-300 font-bold mt-0.5 block">
+                          به نام: {settings?.cardHolderName || 'بهنام جهانی'} {settings?.bankName ? `(${settings.bankName})` : ''}
+                        </span>
+                      </div>
+
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const num = settings?.cardNumber || '6037-9975-1234-5678';
+                          navigator.clipboard.writeText(num.replace(/-/g, ''));
+                          setCopiedCardNumber(true);
+                          setTimeout(() => setCopiedCardNumber(false), 2000);
+                        }}
+                        className="bg-amber-500/10 hover:bg-amber-500/20 text-amber-400 border border-amber-500/30 px-3 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1 transition-colors shrink-0"
+                      >
+                        {copiedCardNumber ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
+                        <span>{copiedCardNumber ? 'کپی شد' : 'کپی کارت'}</span>
+                      </button>
                     </div>
 
-                    <button
-                      type="button"
-                      onClick={() => {
-                        const num = settings?.cardNumber || '6037-9975-1234-5678';
-                        navigator.clipboard.writeText(num.replace(/-/g, ''));
-                        setCopiedCardNumber(true);
-                        setTimeout(() => setCopiedCardNumber(false), 2000);
-                      }}
-                      className="bg-amber-500/10 hover:bg-amber-500/20 text-amber-400 border border-amber-500/30 px-3 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1 transition-colors shrink-0"
-                    >
-                      {copiedCardNumber ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
-                      <span>{copiedCardNumber ? 'کپی شد' : 'کپی کارت'}</span>
-                    </button>
-                  </div>
+                    {/* Transaction Code or Receipt Upload */}
+                    <div className="space-y-2.5 pt-1">
+                      <div>
+                        <label className="block text-[11px] font-medium text-zinc-300 mb-1">کد پیگیری یا شماره ارجاع واریز (اختیاری):</label>
+                        <input
+                          type="text"
+                          value={transactionCodeInput}
+                          onChange={(e) => setTransactionCodeInput(e.target.value)}
+                          placeholder="مثال: 849201"
+                          className="w-full bg-zinc-900 border border-zinc-800 rounded-xl px-3 py-1.5 text-xs text-zinc-100 placeholder-zinc-600 font-mono dir-ltr text-right focus:outline-none focus:border-amber-500"
+                        />
+                      </div>
 
-                  {/* Transaction Code or Receipt Upload */}
-                  <div className="space-y-2.5 pt-1">
-                    <div>
-                      <label className="block text-[11px] font-medium text-zinc-300 mb-1">کد پیگیری یا شماره ارجاع واریز (اختیاری):</label>
-                      <input
-                        type="text"
-                        value={transactionCodeInput}
-                        onChange={(e) => setTransactionCodeInput(e.target.value)}
-                        placeholder="مثال: 849201"
-                        className="w-full bg-zinc-900 border border-zinc-800 rounded-xl px-3 py-1.5 text-xs text-zinc-100 placeholder-zinc-600 font-mono dir-ltr text-right focus:outline-none focus:border-amber-500"
-                      />
-                    </div>
+                      <div className="flex items-center justify-between pt-1">
+                        <span className="text-zinc-200 font-bold flex items-center gap-1.5">
+                          <Upload className="w-4 h-4 text-amber-400" />
+                          <span>تصویر فیش واریزی <span className="text-rose-400 font-black">(الزامی *)</span>:</span>
+                        </span>
 
-                    <div className="flex items-center justify-between pt-1">
-                      <span className="text-zinc-200 font-bold flex items-center gap-1.5">
-                        <Upload className="w-4 h-4 text-amber-400" />
-                        <span>تصویر فیش واریزی <span className="text-rose-400 font-black">(الزامی *)</span>:</span>
-                      </span>
+                        <label className="cursor-pointer bg-amber-500 hover:bg-amber-400 text-zinc-950 px-3 py-1.5 rounded-xl flex items-center gap-1.5 font-bold text-xs transition-all shadow-sm">
+                          <Upload className="w-3.5 h-3.5" />
+                          <span>{receiptImage ? 'تغییر عکس فیش' : 'انتخاب عکس فیش'}</span>
+                          <input type="file" accept="image/*" onChange={handleReceiptUpload} className="hidden" />
+                        </label>
+                      </div>
 
-                      <label className="cursor-pointer bg-amber-500 hover:bg-amber-400 text-zinc-950 px-3 py-1.5 rounded-xl flex items-center gap-1.5 font-bold text-xs transition-all shadow-sm">
-                        <Upload className="w-3.5 h-3.5" />
-                        <span>{receiptImage ? 'تغییر عکس فیش' : 'انتخاب عکس فیش'}</span>
-                        <input type="file" accept="image/*" onChange={handleReceiptUpload} className="hidden" />
-                      </label>
-                    </div>
-
-                    {receiptImage ? (
-                      <div className="p-2.5 bg-zinc-900 border border-emerald-500/30 rounded-xl flex items-center gap-3">
-                        <img src={receiptImage} alt="فیش واریزی" className="w-12 h-12 rounded-lg object-cover border border-zinc-800 shrink-0" />
-                        <div className="flex-1">
-                          <span className="text-emerald-400 font-bold text-xs flex items-center gap-1">
-                            <Check className="w-3.5 h-3.5" />
-                            تصویر فیش واریزی آپلود شد
-                          </span>
-                          <span className="text-[10px] text-zinc-400 block mt-0.5">آماده ارسال و بررسی توسط مدیریت</span>
+                      {receiptImage ? (
+                        <div className="p-2.5 bg-zinc-900 border border-emerald-500/30 rounded-xl flex items-center gap-3">
+                          <img src={receiptImage} alt="فیش واریزی" className="w-12 h-12 rounded-lg object-cover border border-zinc-800 shrink-0" />
+                          <div className="flex-1">
+                            <span className="text-emerald-400 font-bold text-xs flex items-center gap-1">
+                              <Check className="w-3.5 h-3.5" />
+                              تصویر فیش واریزی آپلود شد
+                            </span>
+                            <span className="text-[10px] text-zinc-400 block mt-0.5">آماده ارسال و بررسی توسط مدیریت</span>
+                          </div>
                         </div>
-                      </div>
-                    ) : (
-                      <div className="p-2.5 bg-rose-500/10 border border-rose-500/30 rounded-xl text-rose-300 text-[11px] leading-relaxed flex items-center gap-2">
-                        <AlertCircle className="w-4 h-4 text-rose-400 shrink-0" />
-                        <span>ارسال عکس فیش واریزی الزامی است. بدون آپلود تصویر فیش، سفارش ثبت نخواهد شد.</span>
-                      </div>
-                    )}
+                      ) : (
+                        <div className="p-2.5 bg-rose-500/10 border border-rose-500/30 rounded-xl text-rose-300 text-[11px] leading-relaxed flex items-center gap-2">
+                          <AlertCircle className="w-4 h-4 text-rose-400 shrink-0" />
+                          <span>ارسال عکس فیش واریزی الزامی است. بدون آپلود تصویر فیش، سفارش ثبت نخواهد شد.</span>
+                        </div>
+                      )}
+                    </div>
                   </div>
-                </div>
+                ) : (
+                  /* Online Payment Gateway Box */
+                  <div className="bg-zinc-950 border border-emerald-500/40 p-4 rounded-xl space-y-3 text-xs">
+                    <div className="flex items-center gap-2 text-emerald-400 font-bold border-b border-zinc-800 pb-2.5">
+                      <ShieldCheck className="w-5 h-5 text-emerald-400 shrink-0" />
+                      <div>
+                        <span className="block text-xs font-bold text-white">درگاه پرداخت آنلاین متصل به شبکه شتاب (زرین‌پال / شاپرک)</span>
+                        <span className="block text-[10px] text-emerald-400 font-normal">تضمین امنیت کامل تراکنش با کلیه کارت‌های بانکی عضو شتاب</span>
+                      </div>
+                    </div>
+
+                    <div className="space-y-2 text-zinc-300 text-[11px] leading-relaxed">
+                      <p className="flex items-center gap-1.5">
+                        <Check className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
+                        <span>پس از زدن دکمه «انتقال به درگاه و ثبت سفارش»، به درگاه بانک هدایت می‌شوید.</span>
+                      </p>
+                      <p className="flex items-center gap-1.5">
+                        <Check className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
+                        <span>نیاز به هیچ‌گونه عکس فیش نیست و کد پیگیری بانک به صورت آنی در اختیار شما و مدیریت قرار می‌گیرد.</span>
+                      </p>
+                      {settings?.zarinpalMerchantId && (
+                        <div className="mt-1 bg-emerald-500/10 border border-emerald-500/30 p-2 rounded-lg text-emerald-300 font-mono text-[10px]">
+                          درگاه فعال زرین‌پال: {settings.zarinpalMerchantId.slice(0, 8)}...
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                )}
               </div>
 
               {/* Amount Summary */}
@@ -469,21 +554,33 @@ export const CheckoutModal: React.FC<CheckoutModalProps> = ({
                   </p>
                 </div>
 
-                {/* Order Code Banner */}
-                <div className="bg-zinc-950 border border-amber-500/30 p-4 rounded-xl flex items-center justify-between max-w-sm mx-auto">
-                  <div className="text-right">
-                    <span className="text-[10px] text-zinc-500 block">کد پیگیری سفارش</span>
-                    <span className="text-lg font-black text-amber-400 font-mono tracking-widest">
-                      {createdOrder.orderCode}
-                    </span>
+                {/* Order Code & Payment Ref Banner */}
+                <div className="bg-zinc-950 border border-amber-500/30 p-4 rounded-xl space-y-3 max-w-sm mx-auto">
+                  <div className="flex items-center justify-between">
+                    <div className="text-right">
+                      <span className="text-[10px] text-zinc-500 block">کد پیگیری سفارش</span>
+                      <span className="text-lg font-black text-amber-400 font-mono tracking-widest">
+                        {createdOrder.orderCode}
+                      </span>
+                    </div>
+                    <button
+                      onClick={copyOrderCode}
+                      className="bg-amber-500/10 hover:bg-amber-500/20 text-amber-400 border border-amber-500/30 px-3 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1 transition-colors"
+                    >
+                      {copiedCode ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
+                      <span>{copiedCode ? 'کپی شد' : 'کپی کد'}</span>
+                    </button>
                   </div>
-                  <button
-                    onClick={copyOrderCode}
-                    className="bg-amber-500/10 hover:bg-amber-500/20 text-amber-400 border border-amber-500/30 px-3 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1 transition-colors"
-                  >
-                    {copiedCode ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
-                    <span>{copiedCode ? 'کپی شد' : 'کپی کد'}</span>
-                  </button>
+
+                  {createdOrder.paymentRefId && (
+                    <div className="border-t border-zinc-800 pt-2.5 flex items-center justify-between text-xs">
+                      <span className="text-zinc-400 flex items-center gap-1">
+                        <ShieldCheck className="w-4 h-4 text-emerald-400" />
+                        <span>کد پیگیری بانک (شاپرک):</span>
+                      </span>
+                      <span className="font-mono font-bold text-emerald-400">{createdOrder.paymentRefId}</span>
+                    </div>
+                  )}
                 </div>
 
                 {/* SMS Notification Confirmation Alert */}

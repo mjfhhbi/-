@@ -52,6 +52,10 @@ export interface Order {
   customer: OrderCustomer;
   paymentMethod: 'card_to_card' | 'online_gateway' | 'cash_on_delivery';
   paymentReceipt?: string;
+  isPaid?: boolean;
+  paymentAuthority?: string;
+  paymentRefId?: string;
+  paymentGatewayName?: string;
   status: OrderStatus;
   postalTrackingCode?: string;
   adminNote?: string;
@@ -79,4 +83,7 @@ export interface StoreSettings {
   bankName?: string;
   accountNumber?: string;
   shebaNumber?: string;
+  enableOnlineGateway?: boolean;
+  zarinpalMerchantId?: string;
+  zarinpalSandbox?: boolean;
 }

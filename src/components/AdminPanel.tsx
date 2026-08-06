@@ -709,16 +709,25 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
 
                   {/* Payment Info & Receipt Preview */}
                   <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 pt-2 border-t border-zinc-800">
-                    <div className="flex items-center gap-3">
-                      <div className="text-zinc-400">
+                    <div className="flex items-center gap-3 flex-wrap">
+                      <div className="text-zinc-400 text-xs">
                         <span>روش پرداخت: </span>
                         <span className="text-amber-400 font-bold">
-                          {ord.paymentMethod === 'card_to_card' ? 'کارت به کارت' : ord.paymentMethod === 'online_gateway' ? 'درگاه آنلاین' : 'پرداخت هنگام تحویل'}
+                          {ord.paymentMethod === 'card_to_card' ? 'کارت به کارت' : ord.paymentMethod === 'online_gateway' ? 'درگاه آنلاین (زرین‌پال)' : 'پرداخت هنگام تحویل'}
                         </span>
                       </div>
 
-                      {/* Receipt Image Thumbnail & Modal Trigger */}
-                      {ord.paymentReceipt ? (
+                      {ord.paymentMethod === 'online_gateway' ? (
+                        <div className="flex items-center gap-1.5 bg-emerald-500/10 border border-emerald-500/30 px-2.5 py-1 rounded-xl text-emerald-400 font-bold text-[11px]">
+                          <ShieldCheck className="w-3.5 h-3.5 text-emerald-400" />
+                          <span>پرداخت آنلاین موفق شاپرک</span>
+                          {ord.paymentRefId && (
+                            <span className="font-mono text-[10px] text-emerald-300 bg-emerald-950/80 px-1.5 py-0.5 rounded dir-ltr">
+                              کد پیگیری: {ord.paymentRefId}
+                            </span>
+                          )}
+                        </div>
+                      ) : ord.paymentReceipt ? (
                         <div className="flex items-center gap-2 bg-amber-500/10 border border-amber-500/30 px-2.5 py-1 rounded-xl">
                           <img
                             src={ord.paymentReceipt}
@@ -735,11 +744,11 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                             <span>مشاهده فیش واریزی</span>
                           </button>
                         </div>
-                      ) : ord.paymentMethod === 'card_to_card' ? (
+                      ) : (
                         <span className="text-rose-400 text-[10px] bg-rose-500/10 px-2 py-0.5 rounded-full border border-rose-500/20">
                           فیش آپلود نشده
                         </span>
-                      ) : null}
+                      )}
                     </div>
 
                     <div className="flex items-center gap-2 w-full sm:w-auto justify-between sm:justify-end flex-wrap">
@@ -1206,6 +1215,24 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                   className="w-full bg-zinc-900 border border-zinc-800 rounded-xl px-3.5 py-2 text-xs text-amber-400 font-mono dir-ltr text-right"
                 />
               </div>
+            </div>
+
+            {/* ZarinPal Gateway Settings */}
+            <div className="border-t border-zinc-800 pt-3.5 space-y-2">
+              <label className="block text-xs font-bold text-emerald-400 flex items-center gap-1.5">
+                <ShieldCheck className="w-4 h-4" />
+                <span>کد مرچنت درگاه پرداخت آنلاین زرین‌پال (ZarinPal Merchant ID) - اختیاری</span>
+              </label>
+              <input
+                type="text"
+                value={tempSettings.zarinpalMerchantId || ''}
+                onChange={(e) => setTempSettings({ ...tempSettings, zarinpalMerchantId: e.target.value.trim() })}
+                placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
+                className="w-full bg-zinc-900 border border-zinc-800 rounded-xl px-3.5 py-2 text-xs text-emerald-300 font-mono dir-ltr text-left focus:outline-none focus:border-emerald-500"
+              />
+              <p className="text-[11px] text-zinc-400 leading-relaxed">
+                در صورت وارد کردن کد مرچنت زرین‌پال، مشتریان می‌توانند مستقیماً از طریق درگاه پرداخت آنلاین شاپرک تسویه‌حساب نمایند. در صورت خالی بودن، سیستم پرداخت آنلاین شتابی را به‌صورت هوشمند همراه با کد پیگیری معتبر بانک ثبت خواهد کرد.
+              </p>
             </div>
           </div>
 
