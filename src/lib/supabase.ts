@@ -27,8 +27,8 @@ export function getSupabaseClient(): SupabaseClient | null {
     return null;
   }
 
-  // Check if key is a valid JWT (starts with eyJ) or user-configured valid key
-  if (!key.startsWith('eyJ')) {
+  // Check if key is a valid key format (JWT starting with eyJ, or Supabase publishable key starting with sb_)
+  if (!key.startsWith('eyJ') && !key.startsWith('sb_')) {
     return null;
   }
 
