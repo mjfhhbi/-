@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { CartItem, Order, OrderCustomer, StoreSettings } from '../types';
-import { formatToman, generateOrderCode, fileToBase64 } from '../utils/storage';
+import { formatToman, generateOrderCode, fileToBase64, saveSingleOrder } from '../utils/storage';
 import { 
   X, 
   CheckCircle2, 
@@ -108,7 +108,7 @@ export const CheckoutModal: React.FC<CheckoutModalProps> = ({
     }
   };
 
-  const handleSubmitOrder = (e: React.FormEvent) => {
+  const handleSubmitOrder = async (e: React.FormEvent) => {
     e.preventDefault();
 
     if (items.length === 0) {
@@ -181,12 +181,23 @@ export const CheckoutModal: React.FC<CheckoutModalProps> = ({
       status: isOnline ? 'confirmed' : 'pending',
     };
 
-    setTimeout(() => {
+    try {
+      const isSaved = await saveSingleOrder(newOrder);
+
+      if (!isSaved) {
+        setIsSubmitting(false);
+        setErrorMessage('خطا در ثبت سفارش در سرور! اطلاعات ذخیره نشد، لطفاً اتصال اینترنت خود را چک کرده و مجدداً روی دکمه ثبت بزنید.');
+        return;
+      }
+
       onOrderCreated(newOrder);
       setCreatedOrder(newOrder);
       setIsSubmitting(false);
       setStep('success');
-    }, 600);
+    } catch (err) {
+      setIsSubmitting(false);
+      setErrorMessage('خطا در ارتباط با سرور. ثبت سفارش انجام نشد، لطفاً دوباره تلاش فرمایید.');
+    }
   };
 
   const copyOrderCode = () => {

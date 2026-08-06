@@ -68,6 +68,33 @@
   box-shadow: 0 0 20px -5px rgba(234, 179, 8, 0.25);
 }
 
+/* Smooth micro-transitions for SVG icons, buttons, cards, and modal controls */
+svg {
+  transition: transform 0.25s cubic-bezier(0.34, 1.56, 0.64, 1), color 0.2s ease, opacity 0.2s ease, filter 0.2s ease;
+}
+
+button:hover svg, a:hover svg, label:hover svg {
+  transform: scale(1.12);
+}
+
+button:active svg, a:active svg, label:active svg {
+  transform: scale(0.92);
+}
+
+.group:hover svg {
+  transform: scale(1.12) translateY(-1px);
+}
+
+/* Pulsing effect for active badges */
+@keyframes softPulse {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.85; transform: scale(1.05); }
+}
+
+.animate-soft-pulse {
+  animation: softPulse 2s infinite ease-in-out;
+}
+
 /* Print CSS to ensure only invoice element prints on a single clean page without black modal background */
 @media print {
   @page {

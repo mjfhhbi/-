@@ -104,17 +104,12 @@ export default function App() {
     // Initial server sync
     syncWithServer();
 
-    // Live subscription to Firebase Firestore for instant updates across all devices
-    const unsubscribeFirestore = subscribeToFirestore(({ products, orders, settings }) => {
-      if (products) setProducts(products);
+    // Live subscription for instant updates across devices
+    const unsubscribeSync = subscribeToFirestore(({ products, orders, settings }) => {
+      if (products && products.length > 0) setProducts(products);
       if (orders) setOrders(orders);
       if (settings) setSettings(settings);
     });
-
-    // Auto-poll server fallback every 3 seconds
-    const intervalId = setInterval(() => {
-      syncWithServer();
-    }, 3000);
 
     // Read view parameter or route path from URL
     const params = new URLSearchParams(window.location.search);
@@ -128,8 +123,7 @@ export default function App() {
     }
 
     return () => {
-      unsubscribeFirestore();
-      clearInterval(intervalId);
+      unsubscribeSync();
     };
   }, []);
 

@@ -357,6 +357,57 @@ export async function saveStoredOrders(orders: Order[]): Promise<boolean> {
   return true;
 }
 
+export async function saveSingleOrder(order: Order): Promise<boolean> {
+  let savedLocal = false;
+  let savedServer = false;
+
+  // 1. Save to local storage
+  try {
+    const existing = getStoredOrders();
+    const updated = mergeOrdersList([order], existing);
+    localStorage.setItem(ORDERS_KEY, JSON.stringify(updated));
+    savedLocal = true;
+  } catch (err) {
+    console.error('Error saving order to localStorage:', err);
+  }
+
+  // 2. Direct POST to Node server endpoint /api/orders/new (unblocked in Iran without VPN)
+  try {
+    const res = await fetch('/api/orders/new', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ order }),
+    });
+    if (res.ok) {
+      savedServer = true;
+    }
+  } catch (e) {
+    console.warn('Server API single order save warning:', e);
+  }
+
+  // 3. Supabase sync if client is available
+  const supabase = getSupabaseClient();
+  if (supabase) {
+    try {
+      const { error } = await supabase
+        .from('orders')
+        .upsert([{ id: order.id, data: order, updated_at: new Date().toISOString() }]);
+      if (!error) savedServer = true;
+    } catch (e) {}
+  }
+
+  // 4. Firestore background sync if connected
+  try {
+    setDoc(doc(db, 'orders', order.id), cleanForFirestore(order)).catch(() => {});
+  } catch (e) {}
+
+  if (!savedServer) {
+    enqueuePendingOrders([order]);
+  }
+
+  return savedLocal || savedServer;
+}
+
 export function getStoredSettings(): StoreSettings {
   try {
     const data = localStorage.getItem(SETTINGS_KEY);
@@ -460,7 +511,7 @@ export async function deleteOrderFromFirestore(orderId: string): Promise<boolean
   return true;
 }
 
-// Fetch all shared data from Supabase, server API, or Firestore and merge seamlessly
+// Fetch all shared data from server API, Supabase, or Firestore and merge seamlessly
 export async function fetchServerData(): Promise<{ products: Product[]; orders: Order[]; settings: StoreSettings }> {
   // Process any pending offline/network retry queue first
   processPendingSyncQueue();
@@ -473,7 +524,26 @@ export async function fetchServerData(): Promise<{ products: Product[]; orders: 
   let fetchedOrders: Order[] = [];
   let fetchedSettings: StoreSettings = localSettings;
 
-  // 1. Try Supabase FIRST with a strict 2s timeout (100% unblocked in Iran, no VPN needed)
+  // 1. Try local Server API FIRST with a fast 1s timeout (100% unblocked in Iran, same-origin, no VPN needed)
+  try {
+    const apiPromise = fetch('/api/data?t=' + Date.now(), { cache: 'no-store' }).then(r => r.ok ? r.json() : null);
+    const data = await withTimeout(apiPromise, 1000);
+    if (data) {
+      if (Array.isArray(data.products) && data.products.length > 0) {
+        fetchedProducts = data.products;
+      }
+      if (Array.isArray(data.orders)) {
+        fetchedOrders = data.orders;
+      }
+      if (data.settings) {
+        fetchedSettings = { ...localSettings, ...data.settings };
+      }
+    }
+  } catch (e) {
+    console.warn('Server API fetch failed or timed out:', e);
+  }
+
+  // 2. Try Supabase SECOND (if configured and valid JWT key exists)
   const supabase = getSupabaseClient();
   if (supabase) {
     try {
@@ -483,40 +553,24 @@ export async function fetchServerData(): Promise<{ products: Product[]; orders: 
         supabase.from('store_settings').select('*').eq('id', 'main').maybeSingle()
       ]);
 
-      const [pRes, oRes, sRes] = await withTimeout(sbPromise, 2000);
+      const [pRes, oRes, sRes] = await withTimeout(sbPromise, 1000);
 
       if (!pRes.error && pRes.data && pRes.data.length > 0) {
         fetchedProducts = pRes.data.map((row: any) => row.data || row);
       }
       if (!oRes.error && oRes.data) {
-        fetchedOrders = oRes.data.map((row: any) => row.data || row);
+        fetchedOrders = mergeOrdersList(fetchedOrders, oRes.data.map((row: any) => row.data || row));
       }
       if (!sRes.error && sRes.data) {
-        fetchedSettings = { ...localSettings, ...(sRes.data.data || sRes.data) };
+        fetchedSettings = { ...fetchedSettings, ...(sRes.data.data || sRes.data) };
       }
     } catch (sbErr) {
-      console.warn('Supabase fetch timed out or failed:', sbErr);
+      console.warn('Supabase fetch notice:', sbErr);
     }
   }
 
-  // 2. Try Server API SECOND with a 1.5s timeout
-  try {
-    const apiPromise = fetch('/api/data?t=' + Date.now(), { cache: 'no-store' }).then(r => r.ok ? r.json() : null);
-    const data = await withTimeout(apiPromise, 1500);
-    if (data) {
-      if (Array.isArray(data.products) && data.products.length > 0 && fetchedProducts.length === 0) {
-        fetchedProducts = data.products;
-      }
-      if (Array.isArray(data.orders) && data.orders.length > 0) {
-        fetchedOrders = mergeOrdersList(fetchedOrders, data.orders);
-      }
-    }
-  } catch (e) {
-    console.warn('Server API fetch failed or timed out:', e);
-  }
-
-  // 3. Try client Firestore ONLY if Supabase or Server API returned no products/data (i.e. VPN fallback)
-  if (fetchedProducts.length === 0 && fetchedOrders.length === 0) {
+  // 3. Try client Firestore ONLY if no products were fetched yet (and with strict 800ms timeout)
+  if (fetchedProducts.length === 0) {
     try {
       const fsPromise = (async () => {
         const settingsDoc = await getDoc(doc(db, 'settings', 'store_settings'));
@@ -540,9 +594,9 @@ export async function fetchServerData(): Promise<{ products: Product[]; orders: 
         return { products, orders, settings };
       })();
 
-      const fsData = await withTimeout(fsPromise, 1500);
+      const fsData = await withTimeout(fsPromise, 800);
       if (fsData) {
-        if (fsData.products.length > 0 && fetchedProducts.length === 0) {
+        if (fsData.products.length > 0) {
           fetchedProducts = fsData.products;
         }
         if (fsData.orders.length > 0) {
@@ -550,7 +604,7 @@ export async function fetchServerData(): Promise<{ products: Product[]; orders: 
         }
       }
     } catch (err) {
-      console.warn('Firestore fetch timed out or failed:', err);
+      console.warn('Firestore fetch notice:', err);
     }
   }
 
@@ -599,7 +653,7 @@ export function subscribeToFirestore(
     }
   }
 
-  // Fast periodic poll to backend API / Supabase every 2 seconds (unblocked on all Iranian ISPs)
+  // Poll server API / local data every 8 seconds (unblocked on all Iranian ISPs, lightweight)
   const pollServer = async () => {
     try {
       const serverData = await fetchServerData();
@@ -620,73 +674,23 @@ export function subscribeToFirestore(
     } catch (e) {}
   };
 
-  // Run poll immediately on load and every 2 seconds
+  // Poll on tab focus & periodically every 8s
   pollServer();
-  const intervalId = setInterval(pollServer, 2000);
+  const intervalId = setInterval(pollServer, 8000);
 
-  // Background Firestore listeners if Google is accessible
-  let unsubProducts = () => {};
-  let unsubOrders = () => {};
-  let unsubSettings = () => {};
-
-  try {
-    unsubProducts = onSnapshot(
-      collection(db, 'products'),
-      (snapshot) => {
-        const products: Product[] = [];
-        snapshot.forEach((docSnap) => {
-          products.push(docSnap.data() as Product);
-        });
-        if (products.length > 0) {
-          try {
-            localStorage.setItem(PRODUCTS_KEY, JSON.stringify(products));
-          } catch (e) {}
-          onDataUpdate({ products });
-        }
-      },
-      (err) => console.warn('Firestore background products sync notice:', err)
-    );
-
-    unsubOrders = onSnapshot(
-      collection(db, 'orders'),
-      (snapshot) => {
-        const orders: Order[] = [];
-        snapshot.forEach((docSnap) => {
-          orders.push(docSnap.data() as Order);
-        });
-        try {
-          localStorage.setItem(ORDERS_KEY, JSON.stringify(orders));
-        } catch (e) {}
-        onDataUpdate({ orders });
-      },
-      (err) => console.warn('Firestore background orders sync notice:', err)
-    );
-
-    unsubSettings = onSnapshot(
-      doc(db, 'settings', 'store_settings'),
-      (docSnap) => {
-        if (docSnap.exists()) {
-          const settings = { ...DEFAULT_SETTINGS, ...docSnap.data() } as StoreSettings;
-          try {
-            localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings));
-          } catch (e) {}
-          onDataUpdate({ settings });
-        }
-      },
-      (err) => console.warn('Firestore background settings sync notice:', err)
-    );
-  } catch (e) {}
+  const handleFocus = () => {
+    pollServer();
+  };
+  window.addEventListener('focus', handleFocus);
 
   return () => {
     clearInterval(intervalId);
-    if (supabaseChannel) {
+    window.removeEventListener('focus', handleFocus);
+    if (supabaseChannel && supabase) {
       try {
         supabase.removeChannel(supabaseChannel);
       } catch (e) {}
     }
-    unsubProducts();
-    unsubOrders();
-    unsubSettings();
   };
 }
 
