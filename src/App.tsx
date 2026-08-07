@@ -19,6 +19,12 @@ import {
   subscribeToFirestore,
   deleteProductFromFirestore,
   deleteOrderFromFirestore,
+  addDeletedProductId,
+  removeDeletedProductId,
+  addDeletedOrderId,
+  removeDeletedOrderId,
+  mergeProductsList,
+  mergeOrdersList,
   DEMO_PRODUCTS
 } from './utils/storage';
 
@@ -75,7 +81,7 @@ export default function App() {
     try {
       const serverData = await fetchServerData();
       if (serverData) {
-        if (Array.isArray(serverData.products) && serverData.products.length > 0) {
+        if (Array.isArray(serverData.products)) {
           setProducts(serverData.products);
         }
         if (Array.isArray(serverData.orders)) {
@@ -106,8 +112,8 @@ export default function App() {
 
     // Live subscription for instant updates across devices
     const unsubscribeSync = subscribeToFirestore(({ products, orders, settings }) => {
-      if (products && products.length > 0) setProducts(products);
-      if (orders) setOrders(orders);
+      if (Array.isArray(products)) setProducts(products);
+      if (Array.isArray(orders)) setOrders(orders);
       if (settings) setSettings(settings);
     });
 
@@ -260,58 +266,62 @@ export default function App() {
 
   // Admin Product Actions
   const handleSaveProduct = (product: Product) => {
+    const updatedProd = { ...product, updatedAt: new Date().toISOString() };
+    removeDeletedProductId(product.id);
     setProducts((prev) => {
       const index = prev.findIndex((p) => p.id === product.id);
       let updated: Product[];
       if (index >= 0) {
         updated = [...prev];
-        updated[index] = product;
+        updated[index] = updatedProd;
       } else {
-        updated = [product, ...prev];
+        updated = [updatedProd, ...prev];
       }
-      saveStoredProducts(updated).then(() => syncWithServer());
+      saveStoredProducts(updated);
       return updated;
     });
+    showToast('عینک با موفقیت ذخیره شد');
   };
 
   const handleDeleteProduct = async (productId: string) => {
-    // Direct document deletion in Firestore guarantees instant real-time snapshot broadcast
-    await deleteProductFromFirestore(productId);
-
+    addDeletedProductId(productId);
+    deleteProductFromFirestore(productId);
     setProducts((prev) => {
       const updated = prev.filter((p) => p.id !== productId);
-      saveStoredProducts(updated).then(() => syncWithServer());
+      saveStoredProducts(updated);
       return updated;
     });
     showToast('عینک با موفقیت از سیستم حذف شد');
   };
 
   const handleLoadDemoProducts = () => {
+    DEMO_PRODUCTS.forEach((p) => removeDeletedProductId(p.id));
     setProducts(DEMO_PRODUCTS);
-    saveStoredProducts(DEMO_PRODUCTS).then(() => syncWithServer());
+    saveStoredProducts(DEMO_PRODUCTS);
     showToast('عینک‌های نمونه با موفقیت بارگذاری شدند');
   };
 
   // Order Actions & Automatic Stock Management
   const handleOrderCreated = (newOrder: Order) => {
+    removeDeletedOrderId(newOrder.id);
     // 1. Deduct quantity from product stock
     setProducts((prevProducts) => {
       const updatedProducts = prevProducts.map((p) => {
         const itemInOrder = newOrder.items.find((item) => item.product.id === p.id);
         if (itemInOrder) {
           const newStock = Math.max(0, p.stock - itemInOrder.quantity);
-          return { ...p, stock: newStock };
+          return { ...p, stock: newStock, updatedAt: new Date().toISOString() };
         }
         return p;
       });
-      saveStoredProducts(updatedProducts).then(() => syncWithServer());
+      saveStoredProducts(updatedProducts);
       return updatedProducts;
     });
 
     // 2. Add to orders
     setOrders((prev) => {
       const updated = [newOrder, ...prev];
-      saveStoredOrders(updated).then(() => syncWithServer());
+      saveStoredOrders(updated);
       return updated;
     });
 
@@ -334,11 +344,11 @@ export default function App() {
           const restoredProducts = prevProducts.map((p) => {
             const itemInOrder = targetOrder.items.find((item) => item.product.id === p.id);
             if (itemInOrder) {
-              return { ...p, stock: p.stock + itemInOrder.quantity };
+              return { ...p, stock: p.stock + itemInOrder.quantity, updatedAt: new Date().toISOString() };
             }
             return p;
           });
-          saveStoredProducts(restoredProducts).then(() => syncWithServer());
+          saveStoredProducts(restoredProducts);
           return restoredProducts;
         });
       }
@@ -354,7 +364,7 @@ export default function App() {
             } 
           : o
       ));
-      saveStoredOrders(updated).then(() => syncWithServer());
+      saveStoredOrders(updated);
       return updated;
     });
   };
@@ -362,17 +372,18 @@ export default function App() {
   const handleUpdateOrderCustomer = (orderId: string, updatedCustomer: OrderCustomer) => {
     setOrders((prev) => {
       const updated = prev.map((o) => (o.id === orderId ? { ...o, customer: updatedCustomer, updatedAt: new Date().toISOString() } : o));
-      saveStoredOrders(updated).then(() => syncWithServer());
+      saveStoredOrders(updated);
       return updated;
     });
     showToast('مشخصات و آدرس تحویل با موفقیت به‌روزرسانی شد');
   };
 
   const handleDeleteOrder = async (orderId: string) => {
-    await deleteOrderFromFirestore(orderId);
+    addDeletedOrderId(orderId);
+    deleteOrderFromFirestore(orderId);
     setOrders((prev) => {
       const updated = prev.filter((o) => o.id !== orderId);
-      saveStoredOrders(updated).then(() => syncWithServer());
+      saveStoredOrders(updated);
       return updated;
     });
     showToast('سفارش با موفقیت حذف شد');

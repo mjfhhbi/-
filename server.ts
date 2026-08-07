@@ -128,25 +128,33 @@ function getWritableDataFilePath(): string {
   }
 }
 
+let inMemoryStore: { products: any[]; orders: any[]; settings: any } | null = null;
+
 function readData() {
+  if (inMemoryStore) {
+    return inMemoryStore;
+  }
   const filePath = getWritableDataFilePath();
   try {
     if (fs.existsSync(filePath)) {
       const content = fs.readFileSync(filePath, "utf-8");
       const parsed = JSON.parse(content);
-      return {
+      inMemoryStore = {
         products: Array.isArray(parsed.products) ? parsed.products : DEFAULT_PRODUCTS,
         orders: Array.isArray(parsed.orders) ? parsed.orders : [],
         settings: { ...DEFAULT_SETTINGS, ...(parsed.settings || {}) }
       };
+      return inMemoryStore;
     }
   } catch (err) {
     console.error("Error reading store file:", err);
   }
-  return { products: DEFAULT_PRODUCTS, orders: [], settings: DEFAULT_SETTINGS };
+  inMemoryStore = { products: DEFAULT_PRODUCTS, orders: [], settings: DEFAULT_SETTINGS };
+  return inMemoryStore;
 }
 
 function writeData(data: any) {
+  inMemoryStore = data;
   const filePath = getWritableDataFilePath();
   try {
     const parentDir = path.dirname(filePath);
@@ -183,10 +191,23 @@ app.post("/api/orders", (req, res) => {
     return res.status(400).json({ error: "Invalid orders" });
   }
   const current = readData();
-  const orderMap = new Map();
-  (current.orders || []).forEach((o: any) => { if (o && o.id) orderMap.set(o.id, o); });
-  orders.forEach((o: any) => { if (o && o.id) orderMap.set(o.id, o); });
-  current.orders = Array.from(orderMap.values());
+  current.orders = orders;
+  writeData(current);
+  res.json({ success: true, count: current.orders.length });
+});
+
+app.delete("/api/products/:id", (req, res) => {
+  const productId = req.params.id;
+  const current = readData();
+  current.products = (current.products || []).filter((p: any) => p.id !== productId);
+  writeData(current);
+  res.json({ success: true, count: current.products.length });
+});
+
+app.delete("/api/orders/:id", (req, res) => {
+  const orderId = req.params.id;
+  const current = readData();
+  current.orders = (current.orders || []).filter((o: any) => o.id !== orderId);
   writeData(current);
   res.json({ success: true, count: current.orders.length });
 });
@@ -230,7 +251,7 @@ app.post("/api/products/delete", (req, res) => {
     return res.status(400).json({ error: "productId is required" });
   }
   const current = readData();
-  current.products = current.products.filter((p: any) => p.id !== productId);
+  current.products = (current.products || []).filter((p: any) => p.id !== productId);
   writeData(current);
   res.json({ success: true, count: current.products.length });
 });
@@ -241,7 +262,7 @@ app.post("/api/orders/delete", (req, res) => {
     return res.status(400).json({ error: "orderId is required" });
   }
   const current = readData();
-  current.orders = current.orders.filter((o: any) => o.id !== orderId);
+  current.orders = (current.orders || []).filter((o: any) => o.id !== orderId);
   writeData(current);
   res.json({ success: true, count: current.orders.length });
 });

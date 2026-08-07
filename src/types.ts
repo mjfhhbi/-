@@ -22,6 +22,7 @@ export interface Product {
   stock: number;
   isFeatured?: boolean;
   createdAt: string;
+  updatedAt?: string;
 }
 
 export interface CartItem {
