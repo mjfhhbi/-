@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { 
   Glasses, 
   ShoppingBag, 
@@ -10,6 +10,8 @@ import {
   Menu,
   X,
   Truck,
+  Wifi,
+  WifiOff,
 } from 'lucide-react';
 import { CategoryType, StoreSettings } from '../types';
 import { DEFAULT_CATEGORIES } from '../utils/storage';
@@ -49,6 +51,18 @@ export const Header: React.FC<HeaderProps> = ({
   onAdminLogout,
 }) => {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const [isOnline, setIsOnline] = useState<boolean>(typeof navigator !== 'undefined' ? navigator.onLine : true);
+
+  useEffect(() => {
+    const handleOnline = () => setIsOnline(true);
+    const handleOffline = () => setIsOnline(false);
+    window.addEventListener('online', handleOnline);
+    window.addEventListener('offline', handleOffline);
+    return () => {
+      window.removeEventListener('online', handleOnline);
+      window.removeEventListener('offline', handleOffline);
+    };
+  }, []);
 
   const activeCategories = settings?.categories && settings.categories.length > 0 
     ? settings.categories 
@@ -75,6 +89,27 @@ export const Header: React.FC<HeaderProps> = ({
           </div>
 
           <div className="flex items-center gap-1.5 shrink-0">
+            {/* Online / Network Status Indicator */}
+            <div 
+              className={`flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] sm:text-[11px] font-medium border transition-all ${
+                isOnline 
+                  ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/30' 
+                  : 'bg-amber-500/10 text-amber-400 border-amber-500/30'
+              }`}
+              title={isOnline ? 'اتصال مستقیم بدون نیاز به فیلترشکن' : 'حالت آفلاین - ذخیره‌سازی محلی سفارشات'}
+            >
+              {isOnline ? (
+                <>
+                  <Wifi className="w-3 h-3 text-emerald-400 animate-pulse shrink-0" />
+                  <span className="hidden xs:inline">پاسخ‌دهی آنی</span>
+                </>
+              ) : (
+                <>
+                  <WifiOff className="w-3 h-3 text-amber-400 shrink-0" />
+                  <span>آفلاین</span>
+                </>
+              )}
+            </div>
             <motion.button
               whileHover={{ scale: 1.05 }}
               whileTap={{ scale: 0.95 }}

@@ -361,7 +361,7 @@ export async function saveSingleOrder(order: Order): Promise<boolean> {
   let savedLocal = false;
   let savedServer = false;
 
-  // 1. Save to local storage
+  // 1. Save to local storage instantly (0ms)
   try {
     const existing = getStoredOrders();
     const updated = mergeOrdersList([order], existing);
@@ -371,35 +371,36 @@ export async function saveSingleOrder(order: Order): Promise<boolean> {
     console.error('Error saving order to localStorage:', err);
   }
 
-  // 2. Direct POST to Node server endpoint /api/orders/new (unblocked in Iran without VPN)
+  // 2. Fast POST to Node server endpoint /api/orders/new (unblocked in Iran, same-origin)
   try {
-    const res = await fetch('/api/orders/new', {
+    const apiPromise = fetch('/api/orders/new', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ order }),
     });
-    if (res.ok) {
+    const res = await withTimeout(apiPromise, 1200);
+    if (res && res.ok) {
       savedServer = true;
     }
   } catch (e) {
-    console.warn('Server API single order save warning:', e);
+    console.warn('Server API single order save notice:', e);
   }
 
-  // 3. Supabase sync if client is available
-  const supabase = getSupabaseClient();
-  if (supabase) {
+  // 3. Non-blocking background sync to Supabase & Firestore (never slows down checkout UI)
+  (async () => {
+    const supabase = getSupabaseClient();
+    if (supabase) {
+      try {
+        await supabase
+          .from('orders')
+          .upsert([{ id: order.id, data: order, updated_at: new Date().toISOString() }]);
+      } catch (e) {}
+    }
+
     try {
-      const { error } = await supabase
-        .from('orders')
-        .upsert([{ id: order.id, data: order, updated_at: new Date().toISOString() }]);
-      if (!error) savedServer = true;
+      await setDoc(doc(db, 'orders', order.id), cleanForFirestore(order));
     } catch (e) {}
-  }
-
-  // 4. Firestore background sync if connected
-  try {
-    setDoc(doc(db, 'orders', order.id), cleanForFirestore(order)).catch(() => {});
-  } catch (e) {}
+  })();
 
   if (!savedServer) {
     enqueuePendingOrders([order]);
@@ -543,29 +544,31 @@ export async function fetchServerData(): Promise<{ products: Product[]; orders: 
     console.warn('Server API fetch failed or timed out:', e);
   }
 
-  // 2. Try Supabase SECOND (if configured and valid JWT key exists)
-  const supabase = getSupabaseClient();
-  if (supabase) {
-    try {
-      const sbPromise = Promise.all([
-        supabase.from('products').select('*'),
-        supabase.from('orders').select('*'),
-        supabase.from('store_settings').select('*').eq('id', 'main').maybeSingle()
-      ]);
+  // 2. Try Supabase SECOND ONLY if local server API didn't return products
+  if (fetchedProducts.length === 0) {
+    const supabase = getSupabaseClient();
+    if (supabase) {
+      try {
+        const sbPromise = Promise.all([
+          supabase.from('products').select('*'),
+          supabase.from('orders').select('*'),
+          supabase.from('store_settings').select('*').eq('id', 'main').maybeSingle()
+        ]);
 
-      const [pRes, oRes, sRes] = await withTimeout(sbPromise, 1000);
+        const [pRes, oRes, sRes] = await withTimeout(sbPromise, 1000);
 
-      if (!pRes.error && pRes.data && pRes.data.length > 0) {
-        fetchedProducts = pRes.data.map((row: any) => row.data || row);
+        if (!pRes.error && pRes.data && pRes.data.length > 0) {
+          fetchedProducts = pRes.data.map((row: any) => row.data || row);
+        }
+        if (!oRes.error && oRes.data) {
+          fetchedOrders = mergeOrdersList(fetchedOrders, oRes.data.map((row: any) => row.data || row));
+        }
+        if (!sRes.error && sRes.data) {
+          fetchedSettings = { ...fetchedSettings, ...(sRes.data.data || sRes.data) };
+        }
+      } catch (sbErr) {
+        console.warn('Supabase fetch notice:', sbErr);
       }
-      if (!oRes.error && oRes.data) {
-        fetchedOrders = mergeOrdersList(fetchedOrders, oRes.data.map((row: any) => row.data || row));
-      }
-      if (!sRes.error && sRes.data) {
-        fetchedSettings = { ...fetchedSettings, ...(sRes.data.data || sRes.data) };
-      }
-    } catch (sbErr) {
-      console.warn('Supabase fetch notice:', sbErr);
     }
   }
 
