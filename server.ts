@@ -180,9 +180,15 @@ app.post("/api/products", (req, res) => {
     return res.status(400).json({ error: "Invalid products" });
   }
   const current = readData();
-  current.products = products;
+  const existingMap = new Map((current.products || []).map((p: any) => [p.id, p]));
+  for (const p of products) {
+    if (p && p.id) {
+      existingMap.set(p.id, p);
+    }
+  }
+  current.products = Array.from(existingMap.values());
   writeData(current);
-  res.json({ success: true, count: products.length });
+  res.json({ success: true, count: current.products.length });
 });
 
 app.post("/api/orders", (req, res) => {
@@ -191,7 +197,15 @@ app.post("/api/orders", (req, res) => {
     return res.status(400).json({ error: "Invalid orders" });
   }
   const current = readData();
-  current.orders = orders;
+  const existingMap = new Map((current.orders || []).map((o: any) => [o.id, o]));
+  for (const o of orders) {
+    if (o && o.id) {
+      existingMap.set(o.id, o);
+    }
+  }
+  current.orders = Array.from(existingMap.values()).sort((a: any, b: any) =>
+    new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime()
+  );
   writeData(current);
   res.json({ success: true, count: current.orders.length });
 });
@@ -238,8 +252,18 @@ app.post("/api/settings", (req, res) => {
 app.post("/api/sync-all", (req, res) => {
   const { products, orders, settings } = req.body;
   const current = readData();
-  if (Array.isArray(products)) current.products = products;
-  if (Array.isArray(orders)) current.orders = orders;
+  if (Array.isArray(products)) {
+    const pMap = new Map((current.products || []).map((p: any) => [p.id, p]));
+    for (const p of products) { if (p && p.id) pMap.set(p.id, p); }
+    current.products = Array.from(pMap.values());
+  }
+  if (Array.isArray(orders)) {
+    const oMap = new Map((current.orders || []).map((o: any) => [o.id, o]));
+    for (const o of orders) { if (o && o.id) oMap.set(o.id, o); }
+    current.orders = Array.from(oMap.values()).sort((a: any, b: any) =>
+      new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime()
+    );
+  }
   if (settings && typeof settings === "object") current.settings = { ...current.settings, ...settings };
   writeData(current);
   res.json({ success: true, data: current });

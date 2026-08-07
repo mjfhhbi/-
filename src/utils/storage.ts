@@ -800,11 +800,9 @@ export function subscribeToFirestore(
       const serverData = await fetchServerData();
       if (serverData) {
         const currentHash = JSON.stringify({
-          pCount: serverData.products.length,
-          pMod: serverData.products.map(p => `${p.id}_${p.stock}_${p.price}_${p.title}`).join('|'),
-          oCount: serverData.orders.length,
-          oMod: serverData.orders.map(o => `${o.id}_${o.status}_${o.createdAt}`).join('|'),
-          sMod: JSON.stringify(serverData.settings.categories)
+          pMod: serverData.products.map(p => `${p.id}_${p.stock}_${p.price}_${p.title}`),
+          oMod: serverData.orders.map(o => `${o.id}_${o.status}_${o.postalTrackingCode || ''}_${o.adminNote || ''}_${o.isPaid}_${o.createdAt}`),
+          sMod: JSON.stringify(serverData.settings)
         });
 
         if (currentHash !== lastStateHash) {
