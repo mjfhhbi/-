@@ -651,7 +651,7 @@ export async function deleteOrderFromFirestore(orderId: string): Promise<boolean
   return true;
 }
 
-// Fetch all shared data from server API or local storage cleanly
+// Fetch all shared data with multi-tier fallback: Express Server API -> Supabase -> Firestore -> LocalStorage
 export async function fetchServerData(): Promise<{ products: Product[]; orders: Order[]; settings: StoreSettings }> {
   // Process any pending offline/network retry queue first
   processPendingSyncQueue();
@@ -660,7 +660,7 @@ export async function fetchServerData(): Promise<{ products: Product[]; orders: 
   const deletedPIds = getDeletedProductIds();
   const deletedOIds = getDeletedOrderIds();
 
-  // Express Server API (Same origin, instant, authoritative state)
+  // Tier 1: Express Server API (Same origin, instant, authoritative state)
   try {
     const res = await fetch('/api/data?t=' + Date.now(), { cache: 'no-store' });
     if (res.ok) {
@@ -687,7 +687,79 @@ export async function fetchServerData(): Promise<{ products: Product[]; orders: 
     console.warn('Server API fetch notice:', e);
   }
 
-  // Fallback if network is completely offline
+  // Tier 2: Supabase Fallback (Read products, orders, store_settings with JSONB data column)
+  const supabase = getSupabaseClient();
+  if (supabase) {
+    try {
+      const [pRes, oRes, sRes] = await Promise.all([
+        supabase.from('products').select('*'),
+        supabase.from('orders').select('*'),
+        supabase.from('store_settings').select('*').eq('id', 'main').maybeSingle(),
+      ]);
+
+      if ((pRes && !pRes.error) || (oRes && !oRes.error)) {
+        const rawProducts: Product[] = pRes && pRes.data ? pRes.data.map((r: any) => r.data || r) : [];
+        const rawOrders: Order[] = oRes && oRes.data ? oRes.data.map((r: any) => r.data || r) : [];
+        const sbSettings = sRes && sRes.data ? (sRes.data.data || sRes.data) : null;
+
+        const products = rawProducts.filter((p) => p && p.id && !deletedPIds.has(p.id));
+        const orders = rawOrders.filter((o) => o && o.id && !deletedOIds.has(o.id));
+        const settings: StoreSettings = sbSettings ? { ...localSettings, ...sbSettings } : localSettings;
+
+        try {
+          localStorage.setItem(PRODUCTS_KEY, JSON.stringify(products));
+          localStorage.setItem(ORDERS_KEY, JSON.stringify(orders));
+          localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings));
+        } catch (e) {}
+
+        return { products, orders, settings };
+      }
+    } catch (sbErr) {
+      console.warn('Supabase fetch notice:', sbErr);
+    }
+  }
+
+  // Tier 3: Firestore Fallback (Read products, orders, settings collections/docs)
+  try {
+    const [ordersSnap, productsSnap, settingsDoc] = await withTimeout(
+      Promise.all([
+        getDocs(collection(db, 'orders')),
+        getDocs(collection(db, 'products')),
+        getDoc(doc(db, 'settings', 'store_settings')),
+      ]),
+      3500
+    );
+
+    const rawOrders: Order[] = [];
+    ordersSnap.forEach((docSnap) => {
+      if (docSnap.exists()) rawOrders.push(docSnap.data() as Order);
+    });
+
+    const rawProducts: Product[] = [];
+    productsSnap.forEach((docSnap) => {
+      if (docSnap.exists()) rawProducts.push(docSnap.data() as Product);
+    });
+
+    const fsSettings = settingsDoc.exists()
+      ? ({ ...DEFAULT_SETTINGS, ...settingsDoc.data() } as StoreSettings)
+      : null;
+
+    const products = rawProducts.filter((p) => p && p.id && !deletedPIds.has(p.id));
+    const orders = rawOrders.filter((o) => o && o.id && !deletedOIds.has(o.id));
+    const settings: StoreSettings = fsSettings ? { ...localSettings, ...fsSettings } : localSettings;
+
+    try {
+      localStorage.setItem(PRODUCTS_KEY, JSON.stringify(products));
+      localStorage.setItem(ORDERS_KEY, JSON.stringify(orders));
+      localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings));
+    } catch (e) {}
+
+    return { products, orders, settings };
+  } catch (fsErr) {
+    console.warn('Firestore fetch notice:', fsErr);
+  }
+
+  // Tier 4: Final Fallback (localStorage) if all remote servers/databases are offline
   return {
     products: getStoredProducts(),
     orders: getStoredOrders(),
