@@ -183,9 +183,12 @@ app.post("/api/orders", (req, res) => {
     return res.status(400).json({ error: "Invalid orders" });
   }
   const current = readData();
-  current.orders = orders;
+  const orderMap = new Map();
+  (current.orders || []).forEach((o: any) => { if (o && o.id) orderMap.set(o.id, o); });
+  orders.forEach((o: any) => { if (o && o.id) orderMap.set(o.id, o); });
+  current.orders = Array.from(orderMap.values());
   writeData(current);
-  res.json({ success: true, count: orders.length });
+  res.json({ success: true, count: current.orders.length });
 });
 
 app.post("/api/orders/new", (req, res) => {
@@ -194,7 +197,8 @@ app.post("/api/orders/new", (req, res) => {
     return res.status(400).json({ error: "Invalid order data" });
   }
   const current = readData();
-  current.orders = [order, ...current.orders.filter((o: any) => o.id !== order.id)];
+  const existing = (current.orders || []).filter((o: any) => o.id !== order.id);
+  current.orders = [order, ...existing];
   writeData(current);
   res.json({ success: true, order });
 });

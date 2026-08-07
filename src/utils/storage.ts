@@ -371,52 +371,38 @@ export async function saveSingleOrder(order: Order): Promise<boolean> {
     console.error('Error saving order to localStorage:', err);
   }
 
-  // 2. Parallel sync to Node server API (/api/orders/new), Supabase (unblocked in Iran), and Firestore
-  const syncPromises: Promise<boolean>[] = [];
-
-  // A. Same-origin server API
-  syncPromises.push(
-    fetch('/api/orders/new', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ order }),
-    })
-      .then((res) => res.ok)
-      .catch(() => false)
-  );
-
-  // B. Supabase (unblocked in Iran, no VPN needed)
-  const supabase = getSupabaseClient();
-  if (supabase) {
-    syncPromises.push(
-      (async () => {
-        try {
-          const { error } = await supabase
-            .from('orders')
-            .upsert([{ id: order.id, data: order, updated_at: new Date().toISOString() }]);
-          return !error;
-        } catch (e) {
-          return false;
-        }
-      })()
-    );
-  }
-
-  // C. Firebase Firestore
-  syncPromises.push(
-    setDoc(doc(db, 'orders', order.id), cleanForFirestore(order))
-      .then(() => true)
-      .catch(() => false)
-  );
-
+  // 2. Direct POST to Node server API (/api/orders/new) with generous 8s timeout
   try {
-    const results = await withTimeout(Promise.allSettled(syncPromises), 2000);
-    if (results && Array.isArray(results)) {
-      savedServer = results.some((r) => r.status === 'fulfilled' && r.value === true);
+    const res = await withTimeout(
+      fetch('/api/orders/new', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ order }),
+      }),
+      8000
+    );
+    if (res && res.ok) {
+      savedServer = true;
     }
   } catch (e) {
-    console.warn('Sync promise timeout/notice:', e);
+    console.warn('Server API order save notice:', e);
   }
+
+  // 3. Sync to Supabase & Firestore in background
+  (async () => {
+    const supabase = getSupabaseClient();
+    if (supabase) {
+      try {
+        await supabase
+          .from('orders')
+          .upsert([{ id: order.id, data: order, updated_at: new Date().toISOString() }]);
+      } catch (e) {}
+    }
+
+    try {
+      await setDoc(doc(db, 'orders', order.id), cleanForFirestore(order));
+    } catch (e) {}
+  })();
 
   if (!savedServer) {
     enqueuePendingOrders([order]);
@@ -671,7 +657,7 @@ export function subscribeToFirestore(
     }
   }
 
-  // Poll server API / local data every 8 seconds (unblocked on all Iranian ISPs, lightweight)
+  // Poll server API / local data every 4 seconds for fast cross-device sync
   const pollServer = async () => {
     try {
       const serverData = await fetchServerData();
@@ -680,7 +666,7 @@ export function subscribeToFirestore(
           pCount: serverData.products.length,
           pMod: serverData.products.map(p => `${p.id}_${p.stock}_${p.price}_${p.title}`).join('|'),
           oCount: serverData.orders.length,
-          oMod: serverData.orders.map(o => `${o.id}_${o.status}`).join('|'),
+          oMod: serverData.orders.map(o => `${o.id}_${o.status}_${o.createdAt}`).join('|'),
           sMod: JSON.stringify(serverData.settings.categories)
         });
 
@@ -692,9 +678,9 @@ export function subscribeToFirestore(
     } catch (e) {}
   };
 
-  // Poll on tab focus & periodically every 8s
+  // Poll on tab focus & periodically every 4s
   pollServer();
-  const intervalId = setInterval(pollServer, 8000);
+  const intervalId = setInterval(pollServer, 4000);
 
   const handleFocus = () => {
     pollServer();
@@ -712,8 +698,8 @@ export function subscribeToFirestore(
   };
 }
 
-// Convert and compress image File object to Base64 string (Max 1200px, 0.82 JPEG quality)
-export function fileToBase64(file: File, maxWidth = 1200, quality = 0.82): Promise<string> {
+// Convert and compress image File object to Base64 string (Max 750px, 0.70 JPEG quality for fast upload)
+export function fileToBase64(file: File, maxWidth = 750, quality = 0.70): Promise<string> {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
     reader.readAsDataURL(file);

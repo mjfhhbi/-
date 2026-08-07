@@ -526,6 +526,7 @@ export default function App() {
             onShowToast={showToast}
             onLoadDemoProducts={handleLoadDemoProducts}
             onOpenInvoice={(order) => setSelectedInvoiceOrder(order)}
+            onRefreshData={syncWithServer}
           />
         )}
       </main>

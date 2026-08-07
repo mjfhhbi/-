@@ -51,6 +51,7 @@ interface AdminPanelProps {
   onShowToast: (msg: string) => void;
   onLoadDemoProducts?: () => void;
   onOpenInvoice?: (order: Order) => void;
+  onRefreshData?: () => Promise<void> | void;
 }
 
 export const AdminPanel: React.FC<AdminPanelProps> = ({
@@ -65,10 +66,26 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
   onShowToast,
   onLoadDemoProducts,
   onOpenInvoice,
+  onRefreshData,
 }) => {
   const [activeTab, setActiveTab] = useState<'products' | 'orders' | 'settings' | 'analytics'>('products');
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedOrder, setSelectedOrder] = useState<Order | null>(null);
+  const [isRefreshing, setIsRefreshing] = useState(false);
+
+  const handleManualRefresh = async () => {
+    setIsRefreshing(true);
+    try {
+      if (onRefreshData) {
+        await onRefreshData();
+      }
+      onShowToast('اطلاعات و سفارشات جدید با موفقیت همگام‌سازی شدند');
+    } catch (e) {
+      onShowToast('خطا در به‌روزرسانی اطلاعات');
+    } finally {
+      setTimeout(() => setIsRefreshing(false), 600);
+    }
+  };
 
   // Monthly Sales Calculations
   const monthlySalesData = React.useMemo(() => {
@@ -446,6 +463,18 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
           <Settings className="w-4 h-4" />
           <span>تنظیمات فروشگاه</span>
         </button>
+
+        <div className="mr-auto pb-2 shrink-0">
+          <button
+            onClick={handleManualRefresh}
+            disabled={isRefreshing}
+            className="bg-zinc-800 hover:bg-zinc-700 active:bg-zinc-900 text-amber-400 border border-amber-500/30 px-3 py-1.5 rounded-xl text-xs font-bold flex items-center gap-1.5 transition-all disabled:opacity-50"
+            title="به‌روزرسانی و دریافت آخرین سفارشات ثبت‌شده از سایر گوشی‌ها"
+          >
+            <RefreshCw className={`w-3.5 h-3.5 ${isRefreshing ? 'animate-spin' : ''}`} />
+            <span>به‌روزرسانی سفارشات</span>
+          </button>
+        </div>
       </div>
 
       {/* TAB 1: PRODUCTS MANAGEMENT */}
