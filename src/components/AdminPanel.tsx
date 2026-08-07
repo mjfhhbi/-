@@ -292,7 +292,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
       .filter((f) => f.length > 0);
 
     const productData: Product = {
-      id: editingProduct ? editingProduct.id : Date.now().toString(),
+      id: editingProduct ? editingProduct.id : `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
       title: formTitle,
       code: formCode || 'STK-100',
       category: formCategory,

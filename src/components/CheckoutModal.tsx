@@ -160,7 +160,7 @@ export const CheckoutModal: React.FC<CheckoutModalProps> = ({
     const bankRefId = isOnline ? `ZP-${Math.floor(10000000 + Math.random() * 90000000)}` : undefined;
 
     const newOrder: Order = {
-      id: Date.now().toString(),
+      id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
       orderCode: generateOrderCode(),
       createdAt: new Date().toISOString(),
       items: [...items],
