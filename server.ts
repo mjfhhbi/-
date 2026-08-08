@@ -128,7 +128,7 @@ function getWritableDataFilePath(): string {
   }
 }
 
-let inMemoryStore: { products: any[]; orders: any[]; settings: any } | null = null;
+let inMemoryStore: { products: any[]; orders: any[]; settings: any; deletedProductIds: string[]; deletedOrderIds: string[] } | null = null;
 
 function readData() {
   if (inMemoryStore) {
@@ -142,14 +142,16 @@ function readData() {
       inMemoryStore = {
         products: Array.isArray(parsed.products) ? parsed.products : DEFAULT_PRODUCTS,
         orders: Array.isArray(parsed.orders) ? parsed.orders : [],
-        settings: { ...DEFAULT_SETTINGS, ...(parsed.settings || {}) }
+        settings: { ...DEFAULT_SETTINGS, ...(parsed.settings || {}) },
+        deletedProductIds: Array.isArray(parsed.deletedProductIds) ? parsed.deletedProductIds : [],
+        deletedOrderIds: Array.isArray(parsed.deletedOrderIds) ? parsed.deletedOrderIds : []
       };
       return inMemoryStore;
     }
   } catch (err) {
     console.error("Error reading store file:", err);
   }
-  inMemoryStore = { products: DEFAULT_PRODUCTS, orders: [], settings: DEFAULT_SETTINGS };
+  inMemoryStore = { products: DEFAULT_PRODUCTS, orders: [], settings: DEFAULT_SETTINGS, deletedProductIds: [], deletedOrderIds: [] };
   return inMemoryStore;
 }
 
@@ -167,11 +169,60 @@ function writeData(data: any) {
   }
 }
 
+function getTimestamp(item: any): number {
+  if (!item) return 0;
+  const t = item.updatedAt || item.createdAt;
+  if (!t) return 0;
+  const parsed = new Date(t).getTime();
+  return isNaN(parsed) ? 0 : parsed;
+}
+
+function mergeProducts(p1: any, p2: any): any {
+  const t1 = getTimestamp(p1);
+  const t2 = getTimestamp(p2);
+  if (t2 > t1) {
+    return { ...p1, ...p2 };
+  } else if (t1 > t2) {
+    return { ...p2, ...p1 };
+  } else {
+    if (p2.updatedAt && !p1.updatedAt) return { ...p1, ...p2 };
+    return { ...p1, ...p2 };
+  }
+}
+
+function mergeOrders(o1: any, o2: any): any {
+  const t1 = getTimestamp(o1);
+  const t2 = getTimestamp(o2);
+  let base: any;
+  if (t2 > t1) {
+    base = { ...o1, ...o2 };
+  } else if (t1 > t2) {
+    base = { ...o2, ...o1 };
+  } else {
+    base = { ...o1, ...o2 };
+  }
+  return {
+    ...base,
+    status: o2.status && o2.status !== 'pending' ? o2.status : (o1.status && o1.status !== 'pending' ? o1.status : base.status),
+    postalTrackingCode: o2.postalTrackingCode || o1.postalTrackingCode || base.postalTrackingCode,
+    adminNote: o2.adminNote !== undefined ? o2.adminNote : (o1.adminNote !== undefined ? o1.adminNote : base.adminNote),
+    paymentReceipt: o2.paymentReceipt || o1.paymentReceipt || base.paymentReceipt,
+    paymentRefId: o2.paymentRefId || o1.paymentRefId || base.paymentRefId,
+    isPaid: o2.isPaid || o1.isPaid || base.isPaid,
+  };
+}
+
 // API Endpoints
 app.get("/api/data", (req, res) => {
   res.setHeader("Cache-Control", "no-cache, no-store, must-revalidate");
   const data = readData();
-  res.json(data);
+  res.json({
+    products: data.products || [],
+    orders: data.orders || [],
+    settings: data.settings || DEFAULT_SETTINGS,
+    deletedProductIds: data.deletedProductIds || [],
+    deletedOrderIds: data.deletedOrderIds || [],
+  });
 });
 
 app.post("/api/products", (req, res) => {
@@ -180,13 +231,20 @@ app.post("/api/products", (req, res) => {
     return res.status(400).json({ error: "Invalid products" });
   }
   const current = readData();
+  const deletedSet = new Set(current.deletedProductIds || []);
+  const validIncoming = products.filter((p: any) => p && p.id && !deletedSet.has(p.id));
+
   const existingMap = new Map((current.products || []).map((p: any) => [p.id, p]));
-  for (const p of products) {
-    if (p && p.id) {
+  for (const p of validIncoming) {
+    const existing = existingMap.get(p.id);
+    if (!existing) {
       existingMap.set(p.id, p);
+    } else {
+      existingMap.set(p.id, mergeProducts(existing, p));
     }
   }
-  current.products = Array.from(existingMap.values());
+
+  current.products = Array.from(existingMap.values()).filter((p: any) => !deletedSet.has(p.id));
   writeData(current);
   res.json({ success: true, count: current.products.length });
 });
@@ -197,15 +255,23 @@ app.post("/api/orders", (req, res) => {
     return res.status(400).json({ error: "Invalid orders" });
   }
   const current = readData();
+  const deletedSet = new Set(current.deletedOrderIds || []);
+  const validIncoming = orders.filter((o: any) => o && o.id && !deletedSet.has(o.id));
+
   const existingMap = new Map((current.orders || []).map((o: any) => [o.id, o]));
-  for (const o of orders) {
-    if (o && o.id) {
+  for (const o of validIncoming) {
+    const existing = existingMap.get(o.id);
+    if (!existing) {
       existingMap.set(o.id, o);
+    } else {
+      existingMap.set(o.id, mergeOrders(existing, o));
     }
   }
-  current.orders = Array.from(existingMap.values()).sort((a: any, b: any) =>
-    new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime()
-  );
+
+  current.orders = Array.from(existingMap.values())
+    .filter((o: any) => !deletedSet.has(o.id))
+    .sort((a: any, b: any) => new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime());
+
   writeData(current);
   res.json({ success: true, count: current.orders.length });
 });
@@ -214,6 +280,10 @@ app.delete("/api/products/:id", (req, res) => {
   const productId = req.params.id;
   const current = readData();
   current.products = (current.products || []).filter((p: any) => p.id !== productId);
+  if (!Array.isArray(current.deletedProductIds)) current.deletedProductIds = [];
+  if (!current.deletedProductIds.includes(productId)) {
+    current.deletedProductIds.push(productId);
+  }
   writeData(current);
   res.json({ success: true, count: current.products.length });
 });
@@ -222,6 +292,10 @@ app.delete("/api/orders/:id", (req, res) => {
   const orderId = req.params.id;
   const current = readData();
   current.orders = (current.orders || []).filter((o: any) => o.id !== orderId);
+  if (!Array.isArray(current.deletedOrderIds)) current.deletedOrderIds = [];
+  if (!current.deletedOrderIds.includes(orderId)) {
+    current.deletedOrderIds.push(orderId);
+  }
   writeData(current);
   res.json({ success: true, count: current.orders.length });
 });
@@ -232,8 +306,20 @@ app.post("/api/orders/new", (req, res) => {
     return res.status(400).json({ error: "Invalid order data" });
   }
   const current = readData();
-  const existing = (current.orders || []).filter((o: any) => o.id !== order.id);
-  current.orders = [order, ...existing];
+  if (Array.isArray(current.deletedOrderIds)) {
+    current.deletedOrderIds = current.deletedOrderIds.filter((id: string) => id !== order.id);
+  }
+  const existingMap = new Map((current.orders || []).map((o: any) => [o.id, o]));
+  const existing = existingMap.get(order.id);
+  if (existing) {
+    existingMap.set(order.id, mergeOrders(existing, order));
+  } else {
+    existingMap.set(order.id, order);
+  }
+
+  current.orders = Array.from(existingMap.values()).sort((a: any, b: any) =>
+    new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime()
+  );
   writeData(current);
   res.json({ success: true, order });
 });
@@ -252,19 +338,45 @@ app.post("/api/settings", (req, res) => {
 app.post("/api/sync-all", (req, res) => {
   const { products, orders, settings } = req.body;
   const current = readData();
+  const delPSet = new Set(current.deletedProductIds || []);
+  const delOSet = new Set(current.deletedOrderIds || []);
+
   if (Array.isArray(products)) {
     const pMap = new Map((current.products || []).map((p: any) => [p.id, p]));
-    for (const p of products) { if (p && p.id) pMap.set(p.id, p); }
-    current.products = Array.from(pMap.values());
+    for (const p of products) {
+      if (p && p.id && !delPSet.has(p.id)) {
+        const existing = pMap.get(p.id);
+        if (!existing) {
+          pMap.set(p.id, p);
+        } else {
+          pMap.set(p.id, mergeProducts(existing, p));
+        }
+      }
+    }
+    current.products = Array.from(pMap.values()).filter((p: any) => !delPSet.has(p.id));
   }
+
   if (Array.isArray(orders)) {
     const oMap = new Map((current.orders || []).map((o: any) => [o.id, o]));
-    for (const o of orders) { if (o && o.id) oMap.set(o.id, o); }
-    current.orders = Array.from(oMap.values()).sort((a: any, b: any) =>
-      new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime()
-    );
+    for (const o of orders) {
+      if (o && o.id && !delOSet.has(o.id)) {
+        const existing = oMap.get(o.id);
+        if (!existing) {
+          oMap.set(o.id, o);
+        } else {
+          oMap.set(o.id, mergeOrders(existing, o));
+        }
+      }
+    }
+    current.orders = Array.from(oMap.values())
+      .filter((o: any) => !delOSet.has(o.id))
+      .sort((a: any, b: any) => new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime());
   }
-  if (settings && typeof settings === "object") current.settings = { ...current.settings, ...settings };
+
+  if (settings && typeof settings === "object") {
+    current.settings = { ...current.settings, ...settings };
+  }
+
   writeData(current);
   res.json({ success: true, data: current });
 });
@@ -276,6 +388,10 @@ app.post("/api/products/delete", (req, res) => {
   }
   const current = readData();
   current.products = (current.products || []).filter((p: any) => p.id !== productId);
+  if (!Array.isArray(current.deletedProductIds)) current.deletedProductIds = [];
+  if (!current.deletedProductIds.includes(productId)) {
+    current.deletedProductIds.push(productId);
+  }
   writeData(current);
   res.json({ success: true, count: current.products.length });
 });
@@ -287,6 +403,10 @@ app.post("/api/orders/delete", (req, res) => {
   }
   const current = readData();
   current.orders = (current.orders || []).filter((o: any) => o.id !== orderId);
+  if (!Array.isArray(current.deletedOrderIds)) current.deletedOrderIds = [];
+  if (!current.deletedOrderIds.includes(orderId)) {
+    current.deletedOrderIds.push(orderId);
+  }
   writeData(current);
   res.json({ success: true, count: current.orders.length });
 });

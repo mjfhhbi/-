@@ -288,10 +288,17 @@ export function mergeProductsList(...lists: Product[][]): Product[] {
       } else {
         const existingTime = new Date(existing.updatedAt || existing.createdAt || 0).getTime();
         const newTime = new Date(prod.updatedAt || prod.createdAt || 0).getTime();
-        if (newTime >= existingTime) {
+        if (newTime > existingTime) {
           map.set(prod.id, { ...existing, ...prod });
-        } else {
+        } else if (existingTime > newTime) {
           map.set(prod.id, { ...prod, ...existing });
+        } else {
+          const merged: Product = {
+            ...existing,
+            ...prod,
+            updatedAt: prod.updatedAt || existing.updatedAt,
+          };
+          map.set(prod.id, merged);
         }
       }
     }
@@ -314,10 +321,23 @@ export function mergeOrdersList(...lists: Order[][]): Order[] {
       } else {
         const existingTime = new Date(existing.updatedAt || existing.createdAt || 0).getTime();
         const newTime = new Date(order.updatedAt || order.createdAt || 0).getTime();
-        if (newTime >= existingTime) {
+        if (newTime > existingTime) {
           map.set(order.id, { ...existing, ...order });
-        } else {
+        } else if (existingTime > newTime) {
           map.set(order.id, { ...order, ...existing });
+        } else {
+          const merged: Order = {
+            ...existing,
+            ...order,
+            status: order.status && order.status !== 'pending' ? order.status : (existing.status && existing.status !== 'pending' ? existing.status : order.status),
+            postalTrackingCode: order.postalTrackingCode || existing.postalTrackingCode,
+            adminNote: order.adminNote !== undefined ? order.adminNote : existing.adminNote,
+            paymentReceipt: order.paymentReceipt || existing.paymentReceipt,
+            paymentRefId: order.paymentRefId || existing.paymentRefId,
+            isPaid: order.isPaid || existing.isPaid,
+            updatedAt: order.updatedAt || existing.updatedAt,
+          };
+          map.set(order.id, merged);
         }
       }
     }
@@ -675,15 +695,23 @@ export async function fetchServerData(): Promise<{ products: Product[]; orders: 
   let fsSettings: StoreSettings | null = null;
 
   // 1. Fetch from Express Server API
+  let apiSuccess = false;
   const apiPromise = (async () => {
     try {
       const res = await fetch('/api/data?t=' + Date.now(), { cache: 'no-store' });
       if (res.ok) {
         const data = await res.json();
         if (data) {
+          apiSuccess = true;
           if (Array.isArray(data.products)) apiProducts = data.products;
           if (Array.isArray(data.orders)) apiOrders = data.orders;
           if (data.settings && typeof data.settings === 'object') apiSettings = data.settings;
+          if (Array.isArray(data.deletedProductIds)) {
+            data.deletedProductIds.forEach((id: string) => addDeletedProductId(id));
+          }
+          if (Array.isArray(data.deletedOrderIds)) {
+            data.deletedOrderIds.forEach((id: string) => addDeletedOrderId(id));
+          }
         }
       }
     } catch (e) {
@@ -743,9 +771,16 @@ export async function fetchServerData(): Promise<{ products: Product[]; orders: 
 
   await Promise.allSettled([apiPromise, supabasePromise, firestorePromise]);
 
+  const deletedProductIds = getDeletedProductIds();
+  const deletedOrderIds = getDeletedOrderIds();
+
+  // Filter local items if they were marked deleted globally
+  const activeLocalProducts = localProducts.filter(p => p && p.id && !deletedProductIds.has(p.id));
+  const activeLocalOrders = localOrders.filter(o => o && o.id && !deletedOrderIds.has(o.id));
+
   // Safely merge products and orders from ALL sources without deleting local additions or remote syncs
-  const products = mergeProductsList(localProducts, sbProducts, apiProducts, fsProducts);
-  const orders = mergeOrdersList(localOrders, sbOrders, apiOrders, fsOrders);
+  const products = mergeProductsList(activeLocalProducts, sbProducts, apiProducts, fsProducts);
+  const orders = mergeOrdersList(activeLocalOrders, sbOrders, apiOrders, fsOrders);
   const settings: StoreSettings = {
     ...DEFAULT_SETTINGS,
     ...localSettings,
@@ -803,8 +838,8 @@ export function subscribeToFirestore(
       const serverData = await fetchServerData();
       if (serverData) {
         const currentHash = JSON.stringify({
-          pMod: serverData.products.map(p => `${p.id}_${p.stock}_${p.price}_${p.title}`),
-          oMod: serverData.orders.map(o => `${o.id}_${o.status}_${o.postalTrackingCode || ''}_${o.adminNote || ''}_${o.isPaid}_${o.createdAt}`),
+          pMod: serverData.products.map(p => `${p.id}_${p.stock}_${p.price}_${p.title}_${p.updatedAt || ''}`),
+          oMod: serverData.orders.map(o => `${o.id}_${o.status}_${o.postalTrackingCode || ''}_${o.adminNote || ''}_${o.isPaid}_${o.createdAt}_${o.updatedAt || ''}`),
           sMod: JSON.stringify(serverData.settings)
         });
 
