@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { CartItem, Order, OrderCustomer, StoreSettings } from '../types';
-import { formatToman, generateOrderCode, fileToBase64, saveSingleOrder } from '../utils/storage';
+import { formatToman, generateOrderCode, fileToBase64, saveSingleOrder, DEFAULT_COUPONS } from '../utils/storage';
 import { 
   X, 
   CheckCircle2, 
@@ -17,7 +17,8 @@ import {
   FileText,
   Printer,
   MessageSquare,
-  AlertCircle
+  AlertCircle,
+  Tag
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 
@@ -58,6 +59,10 @@ export const CheckoutModal: React.FC<CheckoutModalProps> = ({
         setReceiptImage('');
         setTransactionCodeInput('');
         setErrorMessage('');
+        setCouponInput('');
+        setAppliedCouponCode(null);
+        setDiscountAmount(0);
+        setCouponMessage(null);
       }, 250);
       return () => clearTimeout(timer);
     }
@@ -92,9 +97,59 @@ export const CheckoutModal: React.FC<CheckoutModalProps> = ({
   const [copiedSheba, setCopiedSheba] = useState(false);
   const [copiedAccountNum, setCopiedAccountNum] = useState(false);
 
+  // Discount Coupon State
+  const [couponInput, setCouponInput] = useState('');
+  const [appliedCouponCode, setAppliedCouponCode] = useState<string | null>(null);
+  const [discountAmount, setDiscountAmount] = useState<number>(0);
+  const [couponMessage, setCouponMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+
   const subtotal = items.reduce((sum, item) => sum + item.product.price * item.quantity, 0);
   const shippingFee = 0; // Post fee is paid on delivery (پس‌کرایه)
-  const finalAmount = subtotal;
+  const finalAmount = Math.max(0, subtotal - discountAmount);
+
+  const handleApplyCoupon = () => {
+    setCouponMessage(null);
+    const cleanCode = couponInput.trim().toUpperCase();
+    if (!cleanCode) {
+      setCouponMessage({ type: 'error', text: 'لطفاً کد تخفیف را وارد کنید.' });
+      return;
+    }
+
+    const coupons = settings?.coupons && settings.coupons.length > 0 ? settings.coupons : DEFAULT_COUPONS;
+    const found = coupons.find((c) => c.code.toUpperCase() === cleanCode && c.isActive);
+
+    if (!found) {
+      setCouponMessage({ type: 'error', text: 'کد تخفیف وارد شده معتبر نیست یا منقضی شده است.' });
+      return;
+    }
+
+    if (found.minOrderAmount && subtotal < found.minOrderAmount) {
+      setCouponMessage({
+        type: 'error',
+        text: `این کد تخفیف مخصوص سفارش‌های بالای ${formatToman(found.minOrderAmount)} می‌باشد.`
+      });
+      return;
+    }
+
+    let calculatedDiscount = Math.round((subtotal * found.discountPercent) / 100);
+    if (found.maxDiscountAmount && calculatedDiscount > found.maxDiscountAmount) {
+      calculatedDiscount = found.maxDiscountAmount;
+    }
+
+    setAppliedCouponCode(found.code);
+    setDiscountAmount(calculatedDiscount);
+    setCouponMessage({
+      type: 'success',
+      text: `کد تخفیف ${found.discountPercent}٪ با موفقیت اعمال شد (${formatToman(calculatedDiscount)} تخفیف).`
+    });
+  };
+
+  const handleRemoveCoupon = () => {
+    setAppliedCouponCode(null);
+    setDiscountAmount(0);
+    setCouponInput('');
+    setCouponMessage(null);
+  };
 
   const handleReceiptUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -166,6 +221,8 @@ export const CheckoutModal: React.FC<CheckoutModalProps> = ({
       items: [...items],
       totalAmount: subtotal,
       shippingFee,
+      discountAmount: discountAmount > 0 ? discountAmount : undefined,
+      appliedCoupon: appliedCouponCode || undefined,
       finalAmount,
       customer,
       paymentMethod,
@@ -528,10 +585,70 @@ export const CheckoutModal: React.FC<CheckoutModalProps> = ({
                 )}
               </div>
 
+              {/* Coupon Code Section */}
+              <div className="bg-zinc-950 p-3.5 rounded-xl border border-zinc-800 space-y-2">
+                <label className="block text-xs font-bold text-zinc-300 flex items-center gap-1.5">
+                  <Tag className="w-3.5 h-3.5 text-amber-400" />
+                  <span>کد تخفیف دارید؟</span>
+                </label>
+
+                {appliedCouponCode ? (
+                  <div className="flex items-center justify-between bg-emerald-500/10 border border-emerald-500/30 p-2.5 rounded-lg text-xs text-emerald-300">
+                    <span className="font-bold">کد «{appliedCouponCode}» فعال است</span>
+                    <button
+                      type="button"
+                      onClick={handleRemoveCoupon}
+                      className="text-xs text-rose-400 hover:text-rose-300 underline font-medium"
+                    >
+                      حذف کد
+                    </button>
+                  </div>
+                ) : (
+                  <div className="flex gap-2">
+                    <input
+                      type="text"
+                      value={couponInput}
+                      onChange={(e) => setCouponInput(e.target.value)}
+                      placeholder="کد تخفیف (مثلا: JAHANI10)"
+                      className="flex-1 bg-zinc-900 border border-zinc-800 rounded-lg px-3 py-1.5 text-xs text-zinc-100 uppercase font-mono placeholder-zinc-600 focus:outline-none focus:border-amber-500 dir-ltr text-right"
+                    />
+                    <button
+                      type="button"
+                      onClick={handleApplyCoupon}
+                      className="bg-amber-500 hover:bg-amber-400 text-zinc-950 px-4 py-1.5 rounded-lg text-xs font-bold transition-colors shrink-0"
+                    >
+                      اعمال کد
+                    </button>
+                  </div>
+                )}
+
+                {couponMessage && (
+                  <p
+                    className={`text-[11px] font-medium ${
+                      couponMessage.type === 'success' ? 'text-emerald-400' : 'text-rose-400'
+                    }`}
+                  >
+                    {couponMessage.text}
+                  </p>
+                )}
+              </div>
+
               {/* Amount Summary */}
-              <div className="bg-zinc-950 p-3.5 rounded-xl border border-zinc-800 flex items-center justify-between">
-                <span className="text-xs text-zinc-400">مبلغ نهایی سفارش:</span>
-                <span className="text-base font-extrabold text-amber-400">{formatToman(finalAmount)}</span>
+              <div className="bg-zinc-950 p-3.5 rounded-xl border border-zinc-800 space-y-2 text-xs">
+                <div className="flex items-center justify-between text-zinc-400">
+                  <span>جمع کل کالاها:</span>
+                  <span>{formatToman(subtotal)}</span>
+                </div>
+                {discountAmount > 0 && (
+                  <div className="flex items-center justify-between text-emerald-400 font-medium">
+                    <span>مبلغ تخفیف:</span>
+                    <span>- {formatToman(discountAmount)}</span>
+                  </div>
+                )}
+                <div className="flex items-center justify-between pt-2 border-t border-zinc-800 text-sm font-bold">
+                  <span className="text-zinc-200">مبلغ قابل پرداخت:</span>
+                  <span className="text-base font-extrabold text-amber-400">{formatToman(finalAmount)}</span>
+                </div>
               </div>
 
               {/* Submit Button */}

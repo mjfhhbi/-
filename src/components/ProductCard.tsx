@@ -1,8 +1,9 @@
 import React, { useState } from 'react';
 import { Product } from '../types';
 import { formatToman } from '../utils/storage';
-import { ShoppingBag, Eye, Edit, Trash2, Shield, Glasses, Check, Sparkles, Image as ImageIcon } from 'lucide-react';
+import { ShoppingBag, Eye, Edit, Trash2, Shield, Glasses, Check, Sparkles, Image as ImageIcon, ArrowRightLeft } from 'lucide-react';
 import { motion } from 'motion/react';
+import { ImageLazyLoader } from './ImageLazyLoader';
 
 interface ProductCardProps {
   product: Product;
@@ -11,6 +12,9 @@ interface ProductCardProps {
   isAdmin?: boolean;
   onEditProduct?: (p: Product) => void;
   onDeleteProduct?: (id: string) => void;
+  isCompared?: boolean;
+  onToggleCompare?: (p: Product) => void;
+  onQuickView?: (p: Product) => void;
 }
 
 export const ProductCard: React.FC<ProductCardProps> = ({
@@ -20,6 +24,9 @@ export const ProductCard: React.FC<ProductCardProps> = ({
   isAdmin = false,
   onEditProduct,
   onDeleteProduct,
+  isCompared = false,
+  onToggleCompare,
+  onQuickView,
 }) => {
   const [currentImgIndex, setCurrentImgIndex] = useState(0);
   const [added, setAdded] = useState(false);
@@ -59,14 +66,11 @@ export const ProductCard: React.FC<ProductCardProps> = ({
       {/* Top Image Preview Container */}
       <div className="relative aspect-[4/3] w-full bg-zinc-950 overflow-hidden flex items-center justify-center border-b border-zinc-800/60">
         {currentImg ? (
-          <img
+          <ImageLazyLoader
             src={currentImg}
             alt={product.title}
-            className="w-full h-full object-cover object-center group-hover:scale-105 transition-transform duration-500"
-            onError={(e) => {
-              // fallback image handler
-              (e.target as HTMLImageElement).style.display = 'none';
-            }}
+            zoomOnHover
+            className="w-full h-full"
           />
         ) : (
           <div className="flex flex-col items-center justify-center p-6 text-center text-zinc-600 gap-2">
@@ -90,12 +94,58 @@ export const ProductCard: React.FC<ProductCardProps> = ({
           )}
         </div>
 
-        {/* Product Code Badge */}
-        <div className="absolute top-2.5 left-2.5">
+        {/* Product Code Badge, Compare & Quick View Buttons */}
+        <div className="absolute top-2.5 left-2.5 flex items-center gap-1.5 z-10">
           <span className="bg-zinc-900/90 backdrop-blur-md text-zinc-400 font-mono text-[10px] px-2 py-0.5 rounded-md border border-zinc-800">
             {product.code || 'STK'}
           </span>
+          {onToggleCompare && (
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                onToggleCompare(product);
+              }}
+              className={`px-2 py-0.5 rounded-md text-[10px] font-medium flex items-center gap-1 transition-all backdrop-blur-md border ${
+                isCompared
+                  ? 'bg-amber-500 text-zinc-950 font-bold border-amber-400 shadow-sm'
+                  : 'bg-zinc-900/80 text-zinc-400 hover:text-amber-400 border-zinc-800'
+              }`}
+              title={isCompared ? 'حذف از لیست مقایسه' : 'افزودن به مقایسه'}
+            >
+              <ArrowRightLeft className="w-3 h-3" />
+              <span className="hidden sm:inline">{isCompared ? 'در مقایسه' : 'مقایسه'}</span>
+            </button>
+          )}
+          {onQuickView && (
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                onQuickView(product);
+              }}
+              className="px-2 py-0.5 rounded-md text-[10px] font-medium flex items-center gap-1 transition-all backdrop-blur-md border bg-zinc-900/80 text-zinc-300 hover:text-amber-400 hover:border-amber-500/40 border-zinc-800"
+              title="مشاهده سریع مشخصات"
+            >
+              <Eye className="w-3 h-3 text-amber-400" />
+              <span className="hidden sm:inline">نگاه سریع</span>
+            </button>
+          )}
         </div>
+
+        {/* Quick View Hover Overlay for Customers */}
+        {!isAdmin && onQuickView && (
+          <div className="absolute inset-0 bg-zinc-950/40 opacity-0 group-hover:opacity-100 transition-all duration-200 flex items-center justify-center backdrop-blur-[2px] z-10 pointer-events-none group-hover:pointer-events-auto">
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                onQuickView(product);
+              }}
+              className="bg-amber-500 hover:bg-amber-400 text-zinc-950 font-extrabold text-xs px-3.5 py-2 rounded-xl shadow-xl flex items-center gap-1.5 transition-transform scale-90 group-hover:scale-100"
+            >
+              <Eye className="w-4 h-4" />
+              <span>مشاهده سریع</span>
+            </button>
+          </div>
+        )}
 
         {/* Multiple Images Dots Indicator */}
         {hasImages && product.images.length > 1 && (

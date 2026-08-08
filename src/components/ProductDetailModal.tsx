@@ -14,6 +14,7 @@ import {
   ChevronLeft
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
+import { ImageLazyLoader } from './ImageLazyLoader';
 
 interface ProductDetailModalProps {
   product: Product | null;
@@ -86,10 +87,11 @@ export const ProductDetailModal: React.FC<ProductDetailModalProps> = ({
             <div className="bg-zinc-950 p-6 flex flex-col items-center justify-between border-b md:border-b-0 md:border-l border-zinc-800/80 relative">
               <div className="w-full aspect-[4/3] relative rounded-xl overflow-hidden bg-zinc-900 flex items-center justify-center border border-zinc-800">
                 {images.length > 0 ? (
-                  <img
+                  <ImageLazyLoader
                     src={images[selectedImageIndex]}
                     alt={product.title}
-                    className="w-full h-full object-cover object-center"
+                    priority
+                    className="w-full h-full"
                   />
                 ) : (
                   <div className="flex flex-col items-center gap-2 text-zinc-600">
@@ -296,10 +298,11 @@ export const ProductDetailModal: React.FC<ProductDetailModalProps> = ({
                     className="group bg-zinc-900 border border-zinc-800 hover:border-amber-500/40 rounded-xl p-2 cursor-pointer transition-all flex flex-col justify-between"
                   >
                     <div className="aspect-[4/3] bg-zinc-950 rounded-lg overflow-hidden mb-2 relative">
-                      <img
+                      <ImageLazyLoader
                         src={relProd.images?.[0] || 'https://images.unsplash.com/photo-1572635196237-14b3f281503f?w=400'}
                         alt={relProd.title}
-                        className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
+                        zoomOnHover
+                        className="w-full h-full"
                       />
                     </div>
                     <div>

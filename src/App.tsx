@@ -32,6 +32,8 @@ import { Header } from './components/Header';
 import { StoreHero } from './components/StoreHero';
 import { ProductCard } from './components/ProductCard';
 import { ProductDetailModal } from './components/ProductDetailModal';
+import { QuickViewModal } from './components/QuickViewModal';
+import { CompareModal } from './components/CompareModal';
 import { CartDrawer } from './components/CartDrawer';
 import { CheckoutModal } from './components/CheckoutModal';
 import { AdminPanel } from './components/AdminPanel';
@@ -40,7 +42,7 @@ import { InvoiceModal } from './components/InvoiceModal';
 import { SupportModal } from './components/SupportModal';
 import { Toast } from './components/Toast';
 
-import { Glasses, Plus, ShieldCheck, Sparkles, RefreshCw, ShoppingBag, Instagram, Phone, Send, Lock, X, KeyRound, Headphones, MessageSquare } from 'lucide-react';
+import { Glasses, Plus, ShieldCheck, Sparkles, RefreshCw, ShoppingBag, Instagram, Phone, Send, Lock, X, KeyRound, Headphones, MessageSquare, ArrowRightLeft } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 
 export default function App() {
@@ -54,11 +56,14 @@ export default function App() {
   const [orders, setOrders] = useState<Order[]>([]);
   const [settings, setSettings] = useState<StoreSettings>(getStoredSettings());
 
-  // Cart State
+  // Cart & Comparison State
   const [cartItems, setCartItems] = useState<CartItem[]>([]);
+  const [comparedProducts, setComparedProducts] = useState<Product[]>([]);
+  const [isCompareModalOpen, setIsCompareModalOpen] = useState<boolean>(false);
 
   // Modals & Drawers
   const [selectedProduct, setSelectedProduct] = useState<Product | null>(null);
+  const [quickViewProduct, setQuickViewProduct] = useState<Product | null>(null);
   const [isCartOpen, setIsCartOpen] = useState(false);
   const [isCheckoutOpen, setIsCheckoutOpen] = useState(false);
   const [isTrackerModalOpen, setIsTrackerModalOpen] = useState(false);
@@ -222,6 +227,24 @@ export default function App() {
     const url = new URL(window.location.href);
     url.searchParams.set('view', 'store');
     window.history.replaceState({}, '', url.toString());
+  };
+
+  // Compare Handler
+  const handleToggleCompare = (product: Product) => {
+    setComparedProducts((prev) => {
+      const exists = prev.some((p) => p.id === product.id);
+      if (exists) {
+        showToast(`عینک "${product.title}" از لیست مقایسه حذف شد`);
+        return prev.filter((p) => p.id !== product.id);
+      } else {
+        if (prev.length >= 4) {
+          showToast('حداکثر ۴ عینک را می‌توانید به طور همزمان مقایسه نمایید');
+          return prev;
+        }
+        showToast(`عینک "${product.title}" به لیست مقایسه اضافه شد`);
+        return [...prev, product];
+      }
+    });
   };
 
   // Cart Logic
@@ -414,6 +437,8 @@ export default function App() {
         onViewChange={handleViewChange}
         cartCount={totalCartCount}
         onOpenCart={() => setIsCartOpen(true)}
+        comparedCount={comparedProducts.length}
+        onOpenCompareModal={() => setIsCompareModalOpen(true)}
         onOpenTrackerModal={() => setIsTrackerModalOpen(true)}
         onOpenSupportModal={() => setIsSupportOpen(true)}
         selectedCategory={selectedCategory}
@@ -511,6 +536,9 @@ export default function App() {
                       product={product}
                       onSelectProduct={(p) => setSelectedProduct(p)}
                       onAddToCart={(p) => handleAddToCart(p, 1)}
+                      isCompared={comparedProducts.some((cp) => cp.id === product.id)}
+                      onToggleCompare={handleToggleCompare}
+                      onQuickView={(p) => setQuickViewProduct(p)}
                     />
                   ))}
                 </AnimatePresence>
@@ -545,6 +573,61 @@ export default function App() {
         allProducts={products}
         onSelectProduct={(p) => setSelectedProduct(p)}
       />
+
+      {/* Quick View Modal */}
+      <QuickViewModal
+        product={quickViewProduct}
+        onClose={() => setQuickViewProduct(null)}
+        onAddToCart={(prod, qty) => handleAddToCart(prod, qty)}
+        onOpenFullDetail={(prod) => setSelectedProduct(prod)}
+      />
+
+      {/* Product Compare Modal */}
+      <CompareModal
+        isOpen={isCompareModalOpen}
+        onClose={() => setIsCompareModalOpen(false)}
+        comparedProducts={comparedProducts}
+        onRemoveFromCompare={(id) => setComparedProducts((prev) => prev.filter((p) => p.id !== id))}
+        onAddToCart={(prod) => handleAddToCart(prod, 1)}
+        onSelectProduct={(p) => setSelectedProduct(p)}
+      />
+
+      {/* Floating Compare Widget Bar */}
+      <AnimatePresence>
+        {comparedProducts.length > 0 && (
+          <motion.div
+            initial={{ opacity: 0, y: 50, scale: 0.9 }}
+            animate={{ opacity: 1, y: 0, scale: 1 }}
+            exit={{ opacity: 0, y: 50, scale: 0.9 }}
+            className="fixed bottom-6 right-6 z-40 bg-zinc-900/95 border border-amber-500/40 p-3 rounded-2xl shadow-2xl backdrop-blur-md flex items-center gap-3 dir-rtl"
+          >
+            <div className="flex items-center gap-2">
+              <div className="p-2 bg-amber-500/10 text-amber-400 rounded-xl border border-amber-500/30">
+                <ArrowRightLeft className="w-5 h-5" />
+              </div>
+              <div>
+                <span className="text-xs font-bold text-white block">جدول مقایسه عینک‌ها</span>
+                <span className="text-[10px] text-zinc-400">{comparedProducts.length} محصول انتخاب شده</span>
+              </div>
+            </div>
+
+            <button
+              onClick={() => setIsCompareModalOpen(true)}
+              className="bg-amber-500 hover:bg-amber-400 text-zinc-950 text-xs font-extrabold px-3.5 py-2 rounded-xl transition-colors shadow-md"
+            >
+              مشاهده جدول
+            </button>
+
+            <button
+              onClick={() => setComparedProducts([])}
+              className="text-zinc-500 hover:text-rose-400 p-1.5 transition-colors"
+              title="پاک کردن لیست مقایسه"
+            >
+              <X className="w-4 h-4" />
+            </button>
+          </motion.div>
+        )}
+      </AnimatePresence>
 
       {/* Shopping Cart Drawer */}
       <CartDrawer

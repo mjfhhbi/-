@@ -128,7 +128,7 @@ function getWritableDataFilePath(): string {
   }
 }
 
-let inMemoryStore: { products: any[]; orders: any[]; settings: any; deletedProductIds: string[]; deletedOrderIds: string[] } | null = null;
+let inMemoryStore: { products: any[]; orders: any[]; settings: any; deletedProductIds: string[]; deletedOrderIds: string[]; dataVersion?: number } | null = null;
 
 function readData() {
   if (inMemoryStore) {
@@ -156,6 +156,7 @@ function readData() {
 }
 
 function writeData(data: any) {
+  data.dataVersion = Date.now();
   inMemoryStore = data;
   const filePath = getWritableDataFilePath();
   try {
@@ -213,6 +214,16 @@ function mergeOrders(o1: any, o2: any): any {
 }
 
 // API Endpoints
+app.get("/api/version", (req, res) => {
+  res.setHeader("Cache-Control", "no-cache, no-store, must-revalidate");
+  const data = readData();
+  res.json({
+    version: data.dataVersion || 1,
+    productsCount: (data.products || []).length,
+    ordersCount: (data.orders || []).length,
+  });
+});
+
 app.get("/api/data", (req, res) => {
   res.setHeader("Cache-Control", "no-cache, no-store, must-revalidate");
   const data = readData();

@@ -1,4 +1,4 @@
-import { Product, Order, StoreSettings, CategoryItem } from '../types';
+import { Product, Order, StoreSettings, CategoryItem, CouponCode } from '../types';
 import { db } from '../lib/firebase';
 import { collection, getDocs, doc, setDoc, getDoc, deleteDoc, writeBatch, onSnapshot } from 'firebase/firestore';
 import { getSupabaseClient } from '../lib/supabase';
@@ -15,6 +15,25 @@ export const DEFAULT_CATEGORIES: CategoryItem[] = [
   { id: 'accessories', label: 'لوازم جانبی' },
 ];
 
+export const DEFAULT_COUPONS: CouponCode[] = [
+  {
+    id: 'coupon-welcome',
+    code: 'JAHANI10',
+    discountPercent: 10,
+    minOrderAmount: 500000,
+    isActive: true,
+    createdAt: new Date().toISOString(),
+  },
+  {
+    id: 'coupon-special',
+    code: 'STK15',
+    discountPercent: 15,
+    minOrderAmount: 1000000,
+    isActive: true,
+    createdAt: new Date().toISOString(),
+  },
+];
+
 export const DEFAULT_SETTINGS: StoreSettings = {
   storeName: 'stock_jahani',
   tagline: 'فروشگاه تخصصی عینک‌های آفتابی و طبی استوک اورجینال',
@@ -25,6 +44,7 @@ export const DEFAULT_SETTINGS: StoreSettings = {
   aboutText: 'فروشگاه عینک استوک جهانی عرضه کننده مستقیم جدیدترین فریم‌های طبی و آفتابی استوک اورجینال اروپا با بالاترین کیفیت و نازل‌ترین قیمت.',
   rulesText: 'تمامی بسته‌ها در هاردکیس مقاوم ضدضربه با پُست پیشتاز ارسال شده و کد رهگیری مرسوله پستی پس از ارسال در همین سایت نمایش داده می‌شود.',
   categories: DEFAULT_CATEGORIES,
+  coupons: DEFAULT_COUPONS,
   instagram: 'stock_jahani',
   phone: '09120000000',
   address: 'تهران، خیابان ولیعصر، مرکز خرید عینک استوک جهانی',
@@ -148,6 +168,7 @@ export async function saveStoredProducts(products: Product[]): Promise<boolean> 
 
   try {
     localStorage.setItem(PRODUCTS_KEY, JSON.stringify(products));
+    notifyTabsOfChange();
   } catch (err) {
     console.error('Error saving products locally:', err);
   }
@@ -174,7 +195,7 @@ export async function saveStoredProducts(products: Product[]): Promise<boolean> 
     })();
   }
 
-  // Background non-blocking Firestore save
+  // Non-blocking background remote sync
   const firestorePromise = (async () => {
     try {
       const existingSnap = await withTimeout(getDocs(collection(db, 'products')), 2000);
@@ -202,7 +223,8 @@ export async function saveStoredProducts(products: Product[]): Promise<boolean> 
     }
   })();
 
-  await Promise.allSettled([apiPromise, supabasePromise, firestorePromise]);
+  // Fire Express API sync quickly and resolve immediately
+  await withTimeout(apiPromise, 300).catch(() => {});
   return true;
 }
 
@@ -483,6 +505,7 @@ export async function saveSingleOrder(order: Order): Promise<boolean> {
     const existing = getStoredOrders();
     const updated = mergeOrdersList([order], existing);
     localStorage.setItem(ORDERS_KEY, JSON.stringify(updated));
+    notifyTabsOfChange();
     savedLocal = true;
   } catch (err) {
     console.error('Error saving order to localStorage:', err);
@@ -516,20 +539,19 @@ export async function saveSingleOrder(order: Order): Promise<boolean> {
 
   let savedRemote = false;
   try {
-    const results = await withTimeout(
-      Promise.allSettled([apiPromise, firestorePromise, supabasePromise]),
-      3500
-    );
-    if (results && Array.isArray(results)) {
-      savedRemote = results.some((r) => r.status === 'fulfilled' && r.value === true);
-    }
+    const apiResult = await withTimeout(apiPromise, 300).catch(() => false);
+    if (apiResult === true) savedRemote = true;
   } catch (e) {
-    console.warn('Remote order save timeout notice:', e);
+    console.warn('Express order sync notice:', e);
   }
 
-  if (!savedRemote) {
-    enqueuePendingOrders([order]);
-  }
+  // Allow Firestore and Supabase to finish in background silently
+  Promise.allSettled([firestorePromise, supabasePromise]).then((results) => {
+    const bgSuccess = results.some((r) => r.status === 'fulfilled' && r.value === true);
+    if (!savedRemote && !bgSuccess) {
+      enqueuePendingOrders([order]);
+    }
+  });
 
   return savedLocal || savedRemote;
 }
@@ -556,6 +578,7 @@ export function getStoredSettings(): StoreSettings {
 export async function saveStoredSettings(settings: StoreSettings): Promise<boolean> {
   try {
     localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings));
+    notifyTabsOfChange();
   } catch (err) {
     console.error('Error saving settings locally:', err);
   }
@@ -694,82 +717,61 @@ export async function fetchServerData(): Promise<{ products: Product[]; orders: 
   let fsOrders: Order[] = [];
   let fsSettings: StoreSettings | null = null;
 
-  // 1. Fetch from Express Server API
-  let apiSuccess = false;
-  const apiPromise = (async () => {
-    try {
-      const res = await fetch('/api/data?t=' + Date.now(), { cache: 'no-store' });
-      if (res.ok) {
-        const data = await res.json();
-        if (data) {
-          apiSuccess = true;
-          if (Array.isArray(data.products)) apiProducts = data.products;
-          if (Array.isArray(data.orders)) apiOrders = data.orders;
-          if (data.settings && typeof data.settings === 'object') apiSettings = data.settings;
-          if (Array.isArray(data.deletedProductIds)) {
-            data.deletedProductIds.forEach((id: string) => addDeletedProductId(id));
-          }
-          if (Array.isArray(data.deletedOrderIds)) {
-            data.deletedOrderIds.forEach((id: string) => addDeletedOrderId(id));
-          }
+  // 1. Fetch from Express Server API (Primary ultra-fast source)
+  try {
+    const res = await fetch('/api/data?t=' + Date.now(), { cache: 'no-store' });
+    if (res.ok) {
+      const data = await res.json();
+      if (data) {
+        if (Array.isArray(data.products)) apiProducts = data.products;
+        if (Array.isArray(data.orders)) apiOrders = data.orders;
+        if (data.settings && typeof data.settings === 'object') apiSettings = data.settings;
+        if (Array.isArray(data.deletedProductIds)) {
+          data.deletedProductIds.forEach((id: string) => addDeletedProductId(id));
+        }
+        if (Array.isArray(data.deletedOrderIds)) {
+          data.deletedOrderIds.forEach((id: string) => addDeletedOrderId(id));
         }
       }
-    } catch (e) {
-      console.warn('Express API fetch notice:', e);
     }
-  })();
+  } catch (e) {
+    console.warn('Express API fetch notice:', e);
+  }
 
-  // 2. Fetch from Supabase Database
+  // 2. Fetch from Supabase and Firestore asynchronously with 250ms max timeout
   const supabase = getSupabaseClient();
-  const supabasePromise = supabase
-    ? (async () => {
-        try {
-          const [pRes, oRes, sRes] = await Promise.all([
-            supabase.from('products').select('*'),
-            supabase.from('orders').select('*'),
-            supabase.from('store_settings').select('*').eq('id', 'main').maybeSingle(),
-          ]);
-          if (pRes && !pRes.error && pRes.data) {
-            sbProducts = pRes.data.map((r: any) => r.data || r).filter((p: any) => p && p.id);
-          }
-          if (oRes && !oRes.error && oRes.data) {
-            sbOrders = oRes.data.map((r: any) => r.data || r).filter((o: any) => o && o.id);
-          }
-          if (sRes && !sRes.error && sRes.data) {
-            sbSettings = sRes.data.data || sRes.data;
-          }
-        } catch (sbErr) {
-          console.warn('Supabase fetch notice:', sbErr);
-        }
-      })()
-    : Promise.resolve();
+  const remoteSync = Promise.allSettled([
+    supabase
+      ? (async () => {
+          try {
+            const res = await supabase.from('products').select('*');
+            if (res?.data) sbProducts = res.data.map((r: any) => r.data || r).filter((p: any) => p && p.id);
+          } catch (e) {}
+        })()
+      : Promise.resolve(),
+    supabase
+      ? (async () => {
+          try {
+            const res = await supabase.from('orders').select('*');
+            if (res?.data) sbOrders = res.data.map((r: any) => r.data || r).filter((o: any) => o && o.id);
+          } catch (e) {}
+        })()
+      : Promise.resolve(),
+    withTimeout(
+      Promise.all([
+        getDocs(collection(db, 'orders')),
+        getDocs(collection(db, 'products')),
+        getDoc(doc(db, 'settings', 'store_settings')),
+      ]).then(([ordersSnap, productsSnap, settingsDoc]) => {
+        ordersSnap.forEach((d) => d.exists() && fsOrders.push(d.data() as Order));
+        productsSnap.forEach((d) => d.exists() && fsProducts.push(d.data() as Product));
+        if (settingsDoc.exists()) fsSettings = settingsDoc.data() as StoreSettings;
+      }),
+      250
+    ).catch(() => {})
+  ]);
 
-  // 3. Fetch from Firestore Database
-  const firestorePromise = (async () => {
-    try {
-      const [ordersSnap, productsSnap, settingsDoc] = await withTimeout(
-        Promise.all([
-          getDocs(collection(db, 'orders')),
-          getDocs(collection(db, 'products')),
-          getDoc(doc(db, 'settings', 'store_settings')),
-        ]),
-        2500
-      );
-      ordersSnap.forEach((docSnap) => {
-        if (docSnap.exists()) fsOrders.push(docSnap.data() as Order);
-      });
-      productsSnap.forEach((docSnap) => {
-        if (docSnap.exists()) fsProducts.push(docSnap.data() as Product);
-      });
-      if (settingsDoc.exists()) {
-        fsSettings = settingsDoc.data() as StoreSettings;
-      }
-    } catch (fsErr) {
-      console.warn('Firestore fetch notice:', fsErr);
-    }
-  })();
-
-  await Promise.allSettled([apiPromise, supabasePromise, firestorePromise]);
+  await withTimeout(remoteSync, 250).catch(() => {});
 
   const deletedProductIds = getDeletedProductIds();
   const deletedOrderIds = getDeletedOrderIds();
@@ -778,7 +780,7 @@ export async function fetchServerData(): Promise<{ products: Product[]; orders: 
   const activeLocalProducts = localProducts.filter(p => p && p.id && !deletedProductIds.has(p.id));
   const activeLocalOrders = localOrders.filter(o => o && o.id && !deletedOrderIds.has(o.id));
 
-  // Safely merge products and orders from ALL sources without deleting local additions or remote syncs
+  // Safely merge products and orders from ALL sources
   const products = mergeProductsList(activeLocalProducts, sbProducts, apiProducts, fsProducts);
   const orders = mergeOrdersList(activeLocalOrders, sbOrders, apiOrders, fsOrders);
   const settings: StoreSettings = {
@@ -795,7 +797,7 @@ export async function fetchServerData(): Promise<{ products: Product[]; orders: 
     localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings));
   } catch (e) {}
 
-  // Back-sync complete merged state to Express Server API so all local devices stay synchronized
+  // Back-sync complete merged state to Express Server API
   fetch('/api/sync-all', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -805,11 +807,12 @@ export async function fetchServerData(): Promise<{ products: Product[]; orders: 
   return { products, orders, settings };
 }
 
-// Live real-time subscription for instant multi-device syncing with 1-second fast polling
+// Live real-time subscription for instant multi-device syncing with version polling
 export function subscribeToFirestore(
   onDataUpdate: (data: { products?: Product[]; orders?: Order[]; settings?: StoreSettings }) => void,
   onError?: (errMessage: string) => void
 ) {
+  let lastServerVersion = 0;
   let lastStateHash = '';
 
   // Supabase Realtime Subscription if configured by user
@@ -832,15 +835,32 @@ export function subscribeToFirestore(
     }
   }
 
-  // Fast 1-second Same-Origin Polling (Instant sync across all devices, zero delay, works in Iran without VPN)
-  const pollServer = async () => {
+  // Fast light-weight version check (sub-10ms endpoint check)
+  const pollServerVersion = async () => {
+    try {
+      const vRes = await fetch('/api/version?t=' + Date.now(), { cache: 'no-store' });
+      if (vRes.ok) {
+        const vData = await vRes.json();
+        if (vData && vData.version && vData.version !== lastServerVersion) {
+          lastServerVersion = vData.version;
+          const freshData = await fetchServerData();
+          if (freshData) {
+            onDataUpdate(freshData);
+          }
+          return;
+        }
+      }
+    } catch (e) {}
+
+    // Fallback hash polling
     try {
       const serverData = await fetchServerData();
       if (serverData) {
         const currentHash = JSON.stringify({
-          pMod: serverData.products.map(p => `${p.id}_${p.stock}_${p.price}_${p.title}_${p.updatedAt || ''}`),
-          oMod: serverData.orders.map(o => `${o.id}_${o.status}_${o.postalTrackingCode || ''}_${o.adminNote || ''}_${o.isPaid}_${o.createdAt}_${o.updatedAt || ''}`),
-          sMod: JSON.stringify(serverData.settings)
+          pCount: serverData.products.length,
+          oCount: serverData.orders.length,
+          pMod: serverData.products.map(p => `${p.id}_${p.stock}_${p.price}`),
+          oMod: serverData.orders.map(o => `${o.id}_${o.status}_${o.postalTrackingCode || ''}_${o.isPaid}`)
         });
 
         if (currentHash !== lastStateHash) {
@@ -851,17 +871,46 @@ export function subscribeToFirestore(
     } catch (e) {}
   };
 
-  pollServer();
-  const intervalId = setInterval(pollServer, 1000);
+  pollServerVersion();
+  const intervalId = setInterval(pollServerVersion, 700);
 
-  const handleFocus = () => {
-    pollServer();
+  const handleFocusOrVisible = () => {
+    pollServerVersion();
   };
-  window.addEventListener('focus', handleFocus);
+
+  const handleCrossTabSync = async () => {
+    const freshData = await fetchServerData();
+    if (freshData) {
+      onDataUpdate(freshData);
+    }
+  };
+
+  if (syncChannel) {
+    syncChannel.onmessage = (event) => {
+      if (event.data && event.data.type === 'DATA_UPDATED') {
+        handleCrossTabSync();
+      }
+    };
+  }
+
+  const handleStorageChange = (e: StorageEvent) => {
+    if (e.key === PRODUCTS_KEY || e.key === ORDERS_KEY || e.key === SETTINGS_KEY || e.key === DELETED_PRODUCTS_KEY || e.key === DELETED_ORDERS_KEY) {
+      handleCrossTabSync();
+    }
+  };
+
+  window.addEventListener('focus', handleFocusOrVisible);
+  document.addEventListener('visibilitychange', handleFocusOrVisible);
+  window.addEventListener('storage', handleStorageChange);
 
   return () => {
     clearInterval(intervalId);
-    window.removeEventListener('focus', handleFocus);
+    window.removeEventListener('focus', handleFocusOrVisible);
+    document.removeEventListener('visibilitychange', handleFocusOrVisible);
+    window.removeEventListener('storage', handleStorageChange);
+    if (syncChannel) {
+      syncChannel.onmessage = null;
+    }
     if (supabaseChannel && supabase) {
       try {
         supabase.removeChannel(supabaseChannel);
@@ -870,7 +919,16 @@ export function subscribeToFirestore(
   };
 }
 
-// Convert and compress image File object to Base64 string (Max 750px, 0.70 JPEG quality for fast upload)
+// Broadcast channel for zero-latency multi-tab sync
+const syncChannel = typeof window !== 'undefined' && 'BroadcastChannel' in window ? new BroadcastChannel('stock_jahani_sync') : null;
+
+export function notifyTabsOfChange() {
+  if (syncChannel) {
+    try {
+      syncChannel.postMessage({ type: 'DATA_UPDATED', timestamp: Date.now() });
+    } catch (e) {}
+  }
+}
 export function fileToBase64(file: File, maxWidth = 750, quality = 0.70): Promise<string> {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();

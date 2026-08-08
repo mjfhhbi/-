@@ -12,6 +12,7 @@ import {
   Glasses
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
+import { ImageLazyLoader } from './ImageLazyLoader';
 
 interface CartDrawerProps {
   isOpen: boolean;
@@ -127,10 +128,10 @@ export const CartDrawer: React.FC<CartDrawerProps> = ({
                   {/* Thumbnail */}
                   <div className="w-16 h-16 rounded-xl bg-zinc-950 border border-zinc-800 overflow-hidden shrink-0 flex items-center justify-center">
                     {item.product.images && item.product.images[0] ? (
-                      <img
+                      <ImageLazyLoader
                         src={item.product.images[0]}
                         alt={item.product.title}
-                        className="w-full h-full object-cover"
+                        className="w-full h-full"
                       />
                     ) : (
                       <Glasses className="w-6 h-6 text-zinc-700" />

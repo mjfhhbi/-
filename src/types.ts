@@ -42,6 +42,16 @@ export interface OrderCustomer {
   notes?: string;
 }
 
+export interface CouponCode {
+  id: string;
+  code: string;
+  discountPercent: number;
+  minOrderAmount?: number;
+  maxDiscountAmount?: number;
+  isActive: boolean;
+  createdAt?: string;
+}
+
 export interface Order {
   id: string;
   orderCode: string;
@@ -49,6 +59,8 @@ export interface Order {
   items: CartItem[];
   totalAmount: number;
   shippingFee: number;
+  discountAmount?: number;
+  appliedCoupon?: string;
   finalAmount: number;
   customer: OrderCustomer;
   paymentMethod: 'card_to_card' | 'online_gateway' | 'cash_on_delivery';
@@ -73,6 +85,7 @@ export interface StoreSettings {
   aboutText?: string;
   rulesText?: string;
   categories?: CategoryItem[];
+  coupons?: CouponCode[];
   instagram: string;
   telegram?: string;
   phone: string;

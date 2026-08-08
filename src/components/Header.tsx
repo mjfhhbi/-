@@ -12,6 +12,7 @@ import {
   Truck,
   Wifi,
   WifiOff,
+  ArrowRightLeft
 } from 'lucide-react';
 import { CategoryType, StoreSettings } from '../types';
 import { DEFAULT_CATEGORIES } from '../utils/storage';
@@ -22,6 +23,8 @@ interface HeaderProps {
   onViewChange: (view: 'store' | 'admin') => void;
   cartCount: number;
   onOpenCart: () => void;
+  comparedCount?: number;
+  onOpenCompareModal?: () => void;
   onOpenTrackerModal?: () => void;
   onOpenSupportModal?: () => void;
   selectedCategory: CategoryType;
@@ -39,6 +42,8 @@ export const Header: React.FC<HeaderProps> = ({
   onViewChange,
   cartCount,
   onOpenCart,
+  comparedCount = 0,
+  onOpenCompareModal,
   onOpenTrackerModal,
   onOpenSupportModal,
   selectedCategory,
@@ -238,6 +243,23 @@ export const Header: React.FC<HeaderProps> = ({
                 <span>پنل مدیریت</span>
               </button>
             </div>
+
+            {/* Compare Button */}
+            {comparedCount > 0 && onOpenCompareModal && (
+              <motion.button
+                whileHover={{ scale: 1.05 }}
+                whileTap={{ scale: 0.95 }}
+                onClick={onOpenCompareModal}
+                className="group relative flex items-center gap-1.5 bg-zinc-900 hover:bg-zinc-800 text-amber-400 border border-amber-500/30 px-3 py-1.5 sm:py-2 rounded-xl text-xs font-bold transition-all shadow-md"
+                title="مشاهده جدول مقایسه عینک‌ها"
+              >
+                <ArrowRightLeft className="w-4 h-4 text-amber-400" />
+                <span className="hidden md:inline">مقایسه</span>
+                <span className="bg-amber-500 text-zinc-950 text-[10px] font-extrabold px-1.5 py-0.2 rounded-md">
+                  {comparedCount}
+                </span>
+              </motion.button>
+            )}
 
             {/* Shopping Cart Button */}
             <motion.button

@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
-import { Product, Order, StoreSettings, OrderStatus, CategoryType, CategoryItem } from '../types';
-import { formatToman, fileToBase64, DEMO_PRODUCTS, exportBackupData, importBackupData, DEFAULT_CATEGORIES } from '../utils/storage';
+import { Product, Order, StoreSettings, OrderStatus, CategoryType, CategoryItem, CouponCode } from '../types';
+import { formatToman, fileToBase64, DEMO_PRODUCTS, exportBackupData, importBackupData, DEFAULT_CATEGORIES, DEFAULT_COUPONS } from '../utils/storage';
 import { getSupabaseCredentials, SUPABASE_SQL_SCRIPT, resetSupabaseClient } from '../lib/supabase';
 import { 
   Plus, 
@@ -34,10 +34,28 @@ import {
   MessageSquare,
   Database,
   Globe,
-  ExternalLink
+  ExternalLink,
+  Tag,
+  Percent,
+  Award
 } from 'lucide-react';
 
+import {
+  ResponsiveContainer,
+  BarChart,
+  Bar,
+  XAxis,
+  YAxis,
+  Tooltip,
+  Legend,
+  CartesianGrid,
+  PieChart,
+  Pie,
+  Cell
+} from 'recharts';
+
 import { motion, AnimatePresence } from 'motion/react';
+import { ImageLazyLoader } from './ImageLazyLoader';
 
 interface AdminPanelProps {
   products: Product[];
@@ -68,7 +86,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
   onOpenInvoice,
   onRefreshData,
 }) => {
-  const [activeTab, setActiveTab] = useState<'products' | 'orders' | 'settings' | 'analytics'>('products');
+  const [activeTab, setActiveTab] = useState<'products' | 'orders' | 'settings' | 'analytics' | 'coupons'>('products');
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedOrder, setSelectedOrder] = useState<Order | null>(null);
   const [isRefreshing, setIsRefreshing] = useState(false);
@@ -86,6 +104,54 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
       setTimeout(() => setIsRefreshing(false), 600);
     }
   };
+
+  // Top Sold Glasses Calculation for Recharts
+  const topSoldProductsData = React.useMemo(() => {
+    const productStats: { [id: string]: { id: string; title: string; code: string; frameType: string; soldCount: number; totalRevenue: number } } = {};
+
+    orders.forEach((order) => {
+      if (order.status === 'cancelled') return;
+      order.items.forEach((item) => {
+        const pId = item.product.id;
+        if (!productStats[pId]) {
+          productStats[pId] = {
+            id: pId,
+            title: item.product.title.length > 20 ? item.product.title.slice(0, 20) + '...' : item.product.title,
+            code: item.product.code || 'STK',
+            frameType: item.product.frameType || 'سایر',
+            soldCount: 0,
+            totalRevenue: 0,
+          };
+        }
+        productStats[pId].soldCount += item.quantity;
+        productStats[pId].totalRevenue += item.product.price * item.quantity;
+      });
+    });
+
+    return Object.values(productStats)
+      .sort((a, b) => b.soldCount - a.soldCount)
+      .slice(0, 8);
+  }, [orders]);
+
+  // Sales by Frame Type for Recharts Pie Chart
+  const frameTypeDistributionData = React.useMemo(() => {
+    const typeMap: { [key: string]: number } = {};
+    orders.forEach((order) => {
+      if (order.status === 'cancelled') return;
+      order.items.forEach((item) => {
+        const type = item.product.frameType || 'سایر فریم‌ها';
+        typeMap[type] = (typeMap[type] || 0) + item.quantity;
+      });
+    });
+
+    const COLORS = ['#f59e0b', '#10b981', '#3b82f6', '#ec4899', '#8b5cf6', '#64748b'];
+
+    return Object.entries(typeMap).map(([name, value], index) => ({
+      name,
+      value,
+      color: COLORS[index % COLORS.length]
+    }));
+  }, [orders]);
 
   // Monthly Sales Calculations
   const monthlySalesData = React.useMemo(() => {
@@ -155,6 +221,59 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
   const [sqlCopied, setSqlCopied] = useState(false);
 
 
+  // Coupon management state
+  const [newCouponCode, setNewCouponCode] = useState('');
+  const [newCouponPercent, setNewCouponPercent] = useState<number>(10);
+  const [newCouponMinAmount, setNewCouponMinAmount] = useState<number>(500000);
+
+  const activeCoupons = tempSettings.coupons || DEFAULT_COUPONS;
+
+  const handleAddCoupon = () => {
+    if (!newCouponCode.trim()) {
+      onShowToast('لطفاً کد تخفیف را وارد کنید');
+      return;
+    }
+    const cleanCode = newCouponCode.trim().toUpperCase();
+    if (activeCoupons.some((c) => c.code.toUpperCase() === cleanCode)) {
+      onShowToast('این کد تخفیف قبلاً تعریف شده است');
+      return;
+    }
+
+    const newCoupon: CouponCode = {
+      id: `coupon-${Date.now()}`,
+      code: cleanCode,
+      discountPercent: Number(newCouponPercent),
+      minOrderAmount: Number(newCouponMinAmount),
+      isActive: true,
+      createdAt: new Date().toISOString(),
+    };
+
+    const updatedCoupons = [...activeCoupons, newCoupon];
+    const updatedSettings = { ...tempSettings, coupons: updatedCoupons };
+    setTempSettings(updatedSettings);
+    onSaveSettings(updatedSettings);
+
+    setNewCouponCode('');
+    onShowToast(`کد تخفیف «${cleanCode}» با موفقیت اضافه شد`);
+  };
+
+  const handleToggleCouponStatus = (id: string) => {
+    const updatedCoupons = activeCoupons.map((c) =>
+      c.id === id ? { ...c, isActive: !c.isActive } : c
+    );
+    const updatedSettings = { ...tempSettings, coupons: updatedCoupons };
+    setTempSettings(updatedSettings);
+    onSaveSettings(updatedSettings);
+    onShowToast('وضعیت کد تخفیف تغییر یافت');
+  };
+
+  const handleDeleteCoupon = (id: string) => {
+    const updatedCoupons = activeCoupons.filter((c) => c.id !== id);
+    const updatedSettings = { ...tempSettings, coupons: updatedCoupons };
+    setTempSettings(updatedSettings);
+    onSaveSettings(updatedSettings);
+    onShowToast('کد تخفیف حذف شد');
+  };
   // Category management state
   const [newCatLabel, setNewCatLabel] = useState('');
   const [editingCatId, setEditingCatId] = useState<string | null>(null);
@@ -449,7 +568,19 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
           }`}
         >
           <BarChart3 className="w-4 h-4 text-amber-400" />
-          <span>گزارش فروش ماهانه</span>
+          <span>آمار فروش و محصولات پرفروش</span>
+        </button>
+
+        <button
+          onClick={() => setActiveTab('coupons')}
+          className={`pb-3 text-sm font-bold border-b-2 transition-all flex items-center gap-2 whitespace-nowrap ${
+            activeTab === 'coupons'
+              ? 'border-amber-400 text-amber-400'
+              : 'border-transparent text-zinc-400 hover:text-zinc-200'
+          }`}
+        >
+          <Tag className="w-4 h-4 text-emerald-400" />
+          <span>کدهای تخفیف ({activeCoupons.length})</span>
         </button>
 
         <button
@@ -543,7 +674,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                 >
                   <div className="aspect-[4/3] rounded-xl bg-zinc-950 border border-zinc-800 overflow-hidden relative flex items-center justify-center">
                     {prod.images && prod.images[0] ? (
-                      <img src={prod.images[0]} alt={prod.title} className="w-full h-full object-cover" />
+                      <ImageLazyLoader src={prod.images[0]} alt={prod.title} className="w-full h-full" />
                     ) : (
                       <Glasses className="w-8 h-8 text-zinc-700" />
                     )}
@@ -929,6 +1060,258 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                     </div>
                   );
                 })}
+              </div>
+            )}
+          </div>
+
+          {/* Recharts Analytics Section: Top Sold Glasses & Frame Types */}
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 pt-4">
+            {/* Bar Chart: Most Sold Glasses */}
+            <div className="lg:col-span-2 bg-zinc-900 border border-zinc-800 p-5 rounded-2xl space-y-4">
+              <div className="flex items-center justify-between border-b border-zinc-800 pb-3">
+                <div>
+                  <h4 className="text-base font-bold text-white flex items-center gap-2">
+                    <TrendingUp className="w-5 h-5 text-amber-400" />
+                    <span>پرفروش‌ترین عینک‌های ویترین (Recharts)</span>
+                  </h4>
+                  <p className="text-xs text-zinc-400 mt-0.5">بررسی تعداد فروش و تحلیل محبوب‌ترین مدل‌ها</p>
+                </div>
+                <span className="text-xs bg-amber-500/10 text-amber-400 border border-amber-500/30 px-2.5 py-1 rounded-lg font-bold">
+                  تعداد فروش
+                </span>
+              </div>
+
+              {topSoldProductsData.length === 0 ? (
+                <div className="text-center py-12 text-zinc-500 text-xs">
+                  هنوز هیچ سفارشی برای تحلیل محصولات پرفروش ثبت نشده است.
+                </div>
+              ) : (
+                <div className="h-72 w-full pt-2">
+                  <ResponsiveContainer width="100%" height="100%">
+                    <BarChart data={topSoldProductsData} margin={{ top: 10, right: 10, left: -20, bottom: 25 }}>
+                      <CartesianGrid strokeDasharray="3 3" stroke="#27272a" />
+                      <XAxis
+                        dataKey="title"
+                        stroke="#a1a1aa"
+                        fontSize={10}
+                        tickLine={false}
+                        interval={0}
+                        angle={-15}
+                        textAnchor="end"
+                      />
+                      <YAxis stroke="#a1a1aa" fontSize={11} tickLine={false} />
+                      <Tooltip
+                        contentStyle={{
+                          backgroundColor: '#18181b',
+                          borderColor: '#3f3f46',
+                          borderRadius: '12px',
+                          color: '#fff',
+                          fontSize: '12px',
+                          textAlign: 'right'
+                        }}
+                        formatter={(value: any, name: any) => {
+                          if (name === 'soldCount') return [`${value} عدد`, 'تعداد فروخته شده'];
+                          return [formatToman(Number(value)), 'مجموع درآمد'];
+                        }}
+                        labelFormatter={(label, items) => {
+                          const item = items?.[0]?.payload;
+                          return item ? `${item.title} (کد: ${item.code})` : label;
+                        }}
+                      />
+                      <Bar dataKey="soldCount" name="soldCount" fill="#f59e0b" radius={[6, 6, 0, 0]} />
+                    </BarChart>
+                  </ResponsiveContainer>
+                </div>
+              )}
+            </div>
+
+            {/* Pie Chart: Sales by Frame Type */}
+            <div className="bg-zinc-900 border border-zinc-800 p-5 rounded-2xl space-y-4">
+              <div className="border-b border-zinc-800 pb-3">
+                <h4 className="text-base font-bold text-white flex items-center gap-2">
+                  <Award className="w-5 h-5 text-emerald-400" />
+                  <span>تفکیک جنس فریم عینک‌ها</span>
+                </h4>
+                <p className="text-xs text-zinc-400 mt-0.5">درصد محبوبیت جنس فریم‌ها (کائوچویی، فلزی و...)</p>
+              </div>
+
+              {frameTypeDistributionData.length === 0 ? (
+                <div className="text-center py-12 text-zinc-500 text-xs">
+                  داده‌ای برای تفکیک فریم‌ها موجود نیست.
+                </div>
+              ) : (
+                <div className="h-64 w-full flex flex-col items-center justify-center">
+                  <ResponsiveContainer width="100%" height="100%">
+                    <PieChart>
+                      <Pie
+                        data={frameTypeDistributionData}
+                        cx="50%"
+                        cy="50%"
+                        innerRadius={50}
+                        outerRadius={80}
+                        paddingAngle={5}
+                        dataKey="value"
+                      >
+                        {frameTypeDistributionData.map((entry, index) => (
+                          <Cell key={`cell-${index}`} fill={entry.color} />
+                        ))}
+                      </Pie>
+                      <Tooltip
+                        contentStyle={{
+                          backgroundColor: '#18181b',
+                          borderColor: '#3f3f46',
+                          borderRadius: '12px',
+                          color: '#fff',
+                          fontSize: '12px',
+                          textAlign: 'right'
+                        }}
+                        formatter={(val: any) => [`${val} عدد`, 'تعداد فروش']}
+                      />
+                    </PieChart>
+                  </ResponsiveContainer>
+
+                  <div className="flex flex-wrap items-center justify-center gap-2 mt-2">
+                    {frameTypeDistributionData.map((item) => (
+                      <div key={item.name} className="flex items-center gap-1.5 text-[11px] text-zinc-300">
+                        <span className="w-2.5 h-2.5 rounded-full" style={{ backgroundColor: item.color }}></span>
+                        <span>{item.name}:</span>
+                        <span className="font-bold text-white">{item.value}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* TAB 5: COUPONS & DISCOUNT CODES */}
+      {activeTab === 'coupons' && (
+        <div className="space-y-6">
+          {/* Header Info */}
+          <div className="bg-zinc-900 border border-zinc-800 p-5 rounded-2xl flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+            <div className="flex items-center gap-3">
+              <div className="p-3 bg-emerald-500/10 text-emerald-400 rounded-2xl border border-emerald-500/30">
+                <Tag className="w-6 h-6" />
+              </div>
+              <div>
+                <h3 className="text-base font-bold text-white">سیستم کدهای تخفیف و کوپن‌های درصدی</h3>
+                <p className="text-xs text-zinc-400 mt-0.5">
+                  کدهای تخفیف را تعریف کنید تا خریداران هنگام ثبت سفارش در مرحله پرداخت استفاده نمایند.
+                </p>
+              </div>
+            </div>
+          </div>
+
+          {/* Create New Coupon Box */}
+          <div className="bg-zinc-900 border border-zinc-800 p-5 rounded-2xl space-y-4">
+            <h4 className="text-sm font-bold text-white flex items-center gap-2">
+              <Plus className="w-4 h-4 text-emerald-400" />
+              <span>ساخت کد تخفیف جدید</span>
+            </h4>
+
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+              <div>
+                <label className="block text-xs font-medium text-zinc-300 mb-1">کد اختصاصی (انگلیسی) *</label>
+                <input
+                  type="text"
+                  value={newCouponCode}
+                  onChange={(e) => setNewCouponCode(e.target.value.toUpperCase())}
+                  placeholder="مثال: YALDA20 یا JAHANI10"
+                  className="w-full bg-zinc-950 border border-zinc-800 rounded-xl px-3 py-2 text-xs text-emerald-400 font-mono uppercase dir-ltr text-right focus:outline-none focus:border-emerald-500"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-medium text-zinc-300 mb-1">درصد تخفیف (%) *</label>
+                <input
+                  type="number"
+                  min={1}
+                  max={100}
+                  value={newCouponPercent}
+                  onChange={(e) => setNewCouponPercent(Number(e.target.value))}
+                  placeholder="15"
+                  className="w-full bg-zinc-950 border border-zinc-800 rounded-xl px-3 py-2 text-xs text-white font-mono focus:outline-none focus:border-emerald-500"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-medium text-zinc-300 mb-1">حداقل مبلغ سفارش (تومان)</label>
+                <input
+                  type="number"
+                  value={newCouponMinAmount}
+                  onChange={(e) => setNewCouponMinAmount(Number(e.target.value))}
+                  placeholder="500000"
+                  className="w-full bg-zinc-950 border border-zinc-800 rounded-xl px-3 py-2 text-xs text-white font-mono focus:outline-none focus:border-emerald-500"
+                />
+              </div>
+            </div>
+
+            <button
+              onClick={handleAddCoupon}
+              className="bg-emerald-600 hover:bg-emerald-500 text-white font-bold px-5 py-2.5 rounded-xl text-xs flex items-center gap-2 transition-colors shadow-lg"
+            >
+              <Check className="w-4 h-4" />
+              <span>ایجاد و فعال‌سازی کد تخفیف</span>
+            </button>
+          </div>
+
+          {/* Coupons List */}
+          <div className="bg-zinc-900 border border-zinc-800 p-5 rounded-2xl space-y-4">
+            <h4 className="text-sm font-bold text-white flex items-center gap-2 border-b border-zinc-800 pb-3">
+              <Percent className="w-4 h-4 text-amber-400" />
+              <span>لیست کدهای تخفیف تعریف‌شده ({activeCoupons.length})</span>
+            </h4>
+
+            {activeCoupons.length === 0 ? (
+              <p className="text-xs text-zinc-500 text-center py-6">هنوز کد تخفیفی ایجاد نشده است.</p>
+            ) : (
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                {activeCoupons.map((coupon) => (
+                  <div
+                    key={coupon.id}
+                    className="bg-zinc-950 border border-zinc-800 hover:border-zinc-700 p-4 rounded-xl flex items-center justify-between gap-3 transition-colors"
+                  >
+                    <div>
+                      <div className="flex items-center gap-2">
+                        <span className="font-mono text-sm font-black text-amber-400 bg-amber-500/10 border border-amber-500/30 px-2.5 py-0.5 rounded-lg">
+                          {coupon.code}
+                        </span>
+                        <span className="text-xs font-bold text-emerald-400 bg-emerald-500/10 border border-emerald-500/30 px-2 py-0.5 rounded-md">
+                          %{coupon.discountPercent} تخفیف
+                        </span>
+                      </div>
+
+                      {coupon.minOrderAmount && coupon.minOrderAmount > 0 && (
+                        <p className="text-[11px] text-zinc-400 mt-2">
+                          مخصوص سفارش‌های بالای {formatToman(coupon.minOrderAmount)}
+                        </p>
+                      )}
+                    </div>
+
+                    <div className="flex items-center gap-2 shrink-0">
+                      <button
+                        onClick={() => handleToggleCouponStatus(coupon.id)}
+                        className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-colors ${
+                          coupon.isActive
+                            ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/40'
+                            : 'bg-zinc-800 text-zinc-500 border border-zinc-700'
+                        }`}
+                      >
+                        {coupon.isActive ? 'فعال' : 'غیرفعال'}
+                      </button>
+
+                      <button
+                        onClick={() => handleDeleteCoupon(coupon.id)}
+                        className="p-2 text-zinc-400 hover:text-rose-400 hover:bg-rose-500/10 rounded-lg transition-colors"
+                        title="حذف کوپن"
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </button>
+                    </div>
+                  </div>
+                ))}
               </div>
             )}
           </div>
