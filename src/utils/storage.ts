@@ -152,17 +152,18 @@ export async function saveStoredProducts(products: Product[]): Promise<boolean> 
     console.error('Error saving products locally:', err);
   }
 
-  // Sync to Server API (Authoritative, fast, unblocked)
-  fetch('/api/products', {
+  // Sync to Server API
+  const apiPromise = fetch('/api/products', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ products }),
   }).catch(() => {});
 
-  // Sync to Supabase in background if configured
+  // Sync to Supabase
   const supabase = getSupabaseClient();
+  let supabasePromise = Promise.resolve();
   if (supabase && products.length > 0) {
-    (async () => {
+    supabasePromise = (async () => {
       try {
         await supabase
           .from('products')
@@ -174,7 +175,7 @@ export async function saveStoredProducts(products: Product[]): Promise<boolean> 
   }
 
   // Background non-blocking Firestore save
-  (async () => {
+  const firestorePromise = (async () => {
     try {
       const existingSnap = await withTimeout(getDocs(collection(db, 'products')), 2000);
       const currentIds = new Set(products.map((p) => p.id));
@@ -201,6 +202,7 @@ export async function saveStoredProducts(products: Product[]): Promise<boolean> 
     }
   })();
 
+  await Promise.allSettled([apiPromise, supabasePromise, firestorePromise]);
   return true;
 }
 
@@ -651,120 +653,121 @@ export async function deleteOrderFromFirestore(orderId: string): Promise<boolean
   return true;
 }
 
-// Fetch all shared data with multi-tier fallback: Express Server API -> Supabase -> Firestore -> LocalStorage
+// Fetch and merge all shared data from Express Server API, Supabase, Firestore, and LocalStorage
 export async function fetchServerData(): Promise<{ products: Product[]; orders: Order[]; settings: StoreSettings }> {
   // Process any pending offline/network retry queue first
   processPendingSyncQueue();
 
+  const localProducts = getStoredProducts();
+  const localOrders = getStoredOrders();
   const localSettings = getStoredSettings();
-  const deletedPIds = getDeletedProductIds();
-  const deletedOIds = getDeletedOrderIds();
 
-  // Tier 1: Express Server API (Same origin, instant, authoritative state)
-  try {
-    const res = await fetch('/api/data?t=' + Date.now(), { cache: 'no-store' });
-    if (res.ok) {
-      const data = await res.json();
-      if (data && (Array.isArray(data.products) || Array.isArray(data.orders))) {
-        const rawProducts: Product[] = Array.isArray(data.products) ? data.products : [];
-        const rawOrders: Order[] = Array.isArray(data.orders) ? data.orders : [];
+  let apiProducts: Product[] = [];
+  let apiOrders: Order[] = [];
+  let apiSettings: StoreSettings | null = null;
 
-        // Clean out any deleted IDs
-        const products = rawProducts.filter((p) => p && p.id && !deletedPIds.has(p.id));
-        const orders = rawOrders.filter((o) => o && o.id && !deletedOIds.has(o.id));
-        const settings: StoreSettings = data.settings ? { ...localSettings, ...data.settings } : localSettings;
+  let sbProducts: Product[] = [];
+  let sbOrders: Order[] = [];
+  let sbSettings: StoreSettings | null = null;
 
-        try {
-          localStorage.setItem(PRODUCTS_KEY, JSON.stringify(products));
-          localStorage.setItem(ORDERS_KEY, JSON.stringify(orders));
-          localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings));
-        } catch (e) {}
+  let fsProducts: Product[] = [];
+  let fsOrders: Order[] = [];
+  let fsSettings: StoreSettings | null = null;
 
-        return { products, orders, settings };
+  // 1. Fetch from Express Server API
+  const apiPromise = (async () => {
+    try {
+      const res = await fetch('/api/data?t=' + Date.now(), { cache: 'no-store' });
+      if (res.ok) {
+        const data = await res.json();
+        if (data) {
+          if (Array.isArray(data.products)) apiProducts = data.products;
+          if (Array.isArray(data.orders)) apiOrders = data.orders;
+          if (data.settings && typeof data.settings === 'object') apiSettings = data.settings;
+        }
       }
+    } catch (e) {
+      console.warn('Express API fetch notice:', e);
     }
-  } catch (e) {
-    console.warn('Server API fetch notice:', e);
-  }
+  })();
 
-  // Tier 2: Supabase Fallback (Read products, orders, store_settings with JSONB data column)
+  // 2. Fetch from Supabase Database
   const supabase = getSupabaseClient();
-  if (supabase) {
-    try {
-      const [pRes, oRes, sRes] = await Promise.all([
-        supabase.from('products').select('*'),
-        supabase.from('orders').select('*'),
-        supabase.from('store_settings').select('*').eq('id', 'main').maybeSingle(),
-      ]);
-
-      if ((pRes && !pRes.error) || (oRes && !oRes.error)) {
-        const rawProducts: Product[] = pRes && pRes.data ? pRes.data.map((r: any) => r.data || r) : [];
-        const rawOrders: Order[] = oRes && oRes.data ? oRes.data.map((r: any) => r.data || r) : [];
-        const sbSettings = sRes && sRes.data ? (sRes.data.data || sRes.data) : null;
-
-        const products = rawProducts.filter((p) => p && p.id && !deletedPIds.has(p.id));
-        const orders = rawOrders.filter((o) => o && o.id && !deletedOIds.has(o.id));
-        const settings: StoreSettings = sbSettings ? { ...localSettings, ...sbSettings } : localSettings;
-
+  const supabasePromise = supabase
+    ? (async () => {
         try {
-          localStorage.setItem(PRODUCTS_KEY, JSON.stringify(products));
-          localStorage.setItem(ORDERS_KEY, JSON.stringify(orders));
-          localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings));
-        } catch (e) {}
+          const [pRes, oRes, sRes] = await Promise.all([
+            supabase.from('products').select('*'),
+            supabase.from('orders').select('*'),
+            supabase.from('store_settings').select('*').eq('id', 'main').maybeSingle(),
+          ]);
+          if (pRes && !pRes.error && pRes.data) {
+            sbProducts = pRes.data.map((r: any) => r.data || r).filter((p: any) => p && p.id);
+          }
+          if (oRes && !oRes.error && oRes.data) {
+            sbOrders = oRes.data.map((r: any) => r.data || r).filter((o: any) => o && o.id);
+          }
+          if (sRes && !sRes.error && sRes.data) {
+            sbSettings = sRes.data.data || sRes.data;
+          }
+        } catch (sbErr) {
+          console.warn('Supabase fetch notice:', sbErr);
+        }
+      })()
+    : Promise.resolve();
 
-        return { products, orders, settings };
-      }
-    } catch (sbErr) {
-      console.warn('Supabase fetch notice:', sbErr);
-    }
-  }
-
-  // Tier 3: Firestore Fallback (Read products, orders, settings collections/docs)
-  try {
-    const [ordersSnap, productsSnap, settingsDoc] = await withTimeout(
-      Promise.all([
-        getDocs(collection(db, 'orders')),
-        getDocs(collection(db, 'products')),
-        getDoc(doc(db, 'settings', 'store_settings')),
-      ]),
-      3500
-    );
-
-    const rawOrders: Order[] = [];
-    ordersSnap.forEach((docSnap) => {
-      if (docSnap.exists()) rawOrders.push(docSnap.data() as Order);
-    });
-
-    const rawProducts: Product[] = [];
-    productsSnap.forEach((docSnap) => {
-      if (docSnap.exists()) rawProducts.push(docSnap.data() as Product);
-    });
-
-    const fsSettings = settingsDoc.exists()
-      ? ({ ...DEFAULT_SETTINGS, ...settingsDoc.data() } as StoreSettings)
-      : null;
-
-    const products = rawProducts.filter((p) => p && p.id && !deletedPIds.has(p.id));
-    const orders = rawOrders.filter((o) => o && o.id && !deletedOIds.has(o.id));
-    const settings: StoreSettings = fsSettings ? { ...localSettings, ...fsSettings } : localSettings;
-
+  // 3. Fetch from Firestore Database
+  const firestorePromise = (async () => {
     try {
-      localStorage.setItem(PRODUCTS_KEY, JSON.stringify(products));
-      localStorage.setItem(ORDERS_KEY, JSON.stringify(orders));
-      localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings));
-    } catch (e) {}
+      const [ordersSnap, productsSnap, settingsDoc] = await withTimeout(
+        Promise.all([
+          getDocs(collection(db, 'orders')),
+          getDocs(collection(db, 'products')),
+          getDoc(doc(db, 'settings', 'store_settings')),
+        ]),
+        2500
+      );
+      ordersSnap.forEach((docSnap) => {
+        if (docSnap.exists()) fsOrders.push(docSnap.data() as Order);
+      });
+      productsSnap.forEach((docSnap) => {
+        if (docSnap.exists()) fsProducts.push(docSnap.data() as Product);
+      });
+      if (settingsDoc.exists()) {
+        fsSettings = settingsDoc.data() as StoreSettings;
+      }
+    } catch (fsErr) {
+      console.warn('Firestore fetch notice:', fsErr);
+    }
+  })();
 
-    return { products, orders, settings };
-  } catch (fsErr) {
-    console.warn('Firestore fetch notice:', fsErr);
-  }
+  await Promise.allSettled([apiPromise, supabasePromise, firestorePromise]);
 
-  // Tier 4: Final Fallback (localStorage) if all remote servers/databases are offline
-  return {
-    products: getStoredProducts(),
-    orders: getStoredOrders(),
-    settings: localSettings,
+  // Safely merge products and orders from ALL sources without deleting local additions or remote syncs
+  const products = mergeProductsList(localProducts, sbProducts, apiProducts, fsProducts);
+  const orders = mergeOrdersList(localOrders, sbOrders, apiOrders, fsOrders);
+  const settings: StoreSettings = {
+    ...DEFAULT_SETTINGS,
+    ...localSettings,
+    ...(fsSettings || {}),
+    ...(apiSettings || {}),
+    ...(sbSettings || {}),
   };
+
+  try {
+    localStorage.setItem(PRODUCTS_KEY, JSON.stringify(products));
+    localStorage.setItem(ORDERS_KEY, JSON.stringify(orders));
+    localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings));
+  } catch (e) {}
+
+  // Back-sync complete merged state to Express Server API so all local devices stay synchronized
+  fetch('/api/sync-all', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ products, orders, settings }),
+  }).catch(() => {});
+
+  return { products, orders, settings };
 }
 
 // Live real-time subscription for instant multi-device syncing with 1-second fast polling
