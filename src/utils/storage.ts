@@ -757,6 +757,14 @@ export async function fetchServerData(): Promise<{ products: Product[]; orders: 
           } catch (e) {}
         })()
       : Promise.resolve(),
+    supabase
+      ? (async () => {
+          try {
+            const res = await supabase.from('store_settings').select('*').eq('id', 'main').maybeSingle();
+            if (res?.data?.data) sbSettings = res.data.data as StoreSettings;
+          } catch (e) {}
+        })()
+      : Promise.resolve(),
     withTimeout(
       Promise.all([
         getDocs(collection(db, 'orders')),
