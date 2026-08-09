@@ -214,6 +214,75 @@ function mergeOrders(o1: any, o2: any): any {
 }
 
 // API Endpoints
+app.get("/sitemap.xml", (req, res) => {
+  res.setHeader("Content-Type", "application/xml");
+  const data = readData();
+  const products = data.products || [];
+  const domain = `${req.protocol}://${req.get("host")}`;
+
+  let xml = `<?xml version="1.0" encoding="UTF-8"?>\n`;
+  xml += `<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n`;
+  xml += `  <url><loc>${domain}/</loc><changefreq>daily</changefreq><priority>1.0</priority></url>\n`;
+
+  const categories = ['sunglasses', 'optical', 'sport', 'unisex', 'accessories'];
+  categories.forEach((cat) => {
+    xml += `  <url><loc>${domain}/?category=${cat}</loc><changefreq>daily</changefreq><priority>0.8</priority></url>\n`;
+  });
+
+  products.forEach((p: any) => {
+    xml += `  <url><loc>${domain}/?product=${p.id}</loc><lastmod>${(p.updatedAt || p.createdAt || '').split('T')[0]}</lastmod><changefreq>weekly</changefreq><priority>0.9</priority></url>\n`;
+  });
+
+  xml += `</urlset>`;
+  res.send(xml);
+});
+
+app.get("/robots.txt", (req, res) => {
+  res.setHeader("Content-Type", "text/plain");
+  const data = readData();
+  const customRobots = data.settings?.robotsTxtContent;
+  if (customRobots && customRobots.trim()) {
+    return res.send(customRobots);
+  }
+  const domain = `${req.protocol}://${req.get("host")}`;
+  res.send(`User-agent: *\nAllow: /\nDisallow: /admin\nSitemap: ${domain}/sitemap.xml`);
+});
+
+app.get("/api/feed/torob", (req, res) => {
+  res.setHeader("Content-Type", "application/json");
+  const data = readData();
+  const domain = `${req.protocol}://${req.get("host")}`;
+  const products = (data.products || []).map((p: any) => ({
+    page_unique_code: p.id,
+    title: p.title,
+    subtitle: p.code ? `کد: ${p.code}` : '',
+    price: p.price,
+    old_price: p.originalPrice || p.price,
+    availability: p.stock > 0 ? 'instock' : 'outofstock',
+    page_url: `${domain}/?product=${p.id}`,
+    image_links: p.images || [],
+    category_name: p.category || 'عینک',
+  }));
+  res.json({ products });
+});
+
+app.get("/api/feed/emalls", (req, res) => {
+  res.setHeader("Content-Type", "application/json");
+  const data = readData();
+  const domain = `${req.protocol}://${req.get("host")}`;
+  const products = (data.products || []).map((p: any) => ({
+    id: p.id,
+    title: p.title,
+    price: p.price,
+    old_price: p.originalPrice || 0,
+    is_available: p.stock > 0,
+    link: `${domain}/?product=${p.id}`,
+    image: (p.images && p.images[0]) || '',
+    category: p.category || 'عینک'
+  }));
+  res.json(products);
+});
+
 app.get("/api/version", (req, res) => {
   res.setHeader("Cache-Control", "no-cache, no-store, must-revalidate");
   const data = readData();

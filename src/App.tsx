@@ -40,6 +40,7 @@ import { AdminPanel } from './components/AdminPanel';
 import { CustomerOrderTrackerModal } from './components/CustomerOrderTrackerModal';
 import { InvoiceModal } from './components/InvoiceModal';
 import { SupportModal } from './components/SupportModal';
+import { SeoHead } from './components/SeoHead';
 import { Toast } from './components/Toast';
 
 import { Glasses, Plus, ShieldCheck, Sparkles, RefreshCw, ShoppingBag, Instagram, Phone, Send, Lock, X, KeyRound, Headphones, MessageSquare, ArrowRightLeft } from 'lucide-react';
@@ -430,6 +431,7 @@ export default function App() {
 
   return (
     <div className="min-h-screen w-full max-w-full overflow-x-hidden bg-zinc-950 text-zinc-100 flex flex-col font-['Vazirmatn',sans-serif]">
+      <SeoHead settings={settings} selectedProduct={selectedProduct} />
       
       {/* Header Bar */}
       <Header

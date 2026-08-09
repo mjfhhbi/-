@@ -86,7 +86,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
   onOpenInvoice,
   onRefreshData,
 }) => {
-  const [activeTab, setActiveTab] = useState<'products' | 'orders' | 'settings' | 'analytics' | 'coupons'>('products');
+  const [activeTab, setActiveTab] = useState<'products' | 'orders' | 'settings' | 'analytics' | 'coupons' | 'seo'>('products');
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedOrder, setSelectedOrder] = useState<Order | null>(null);
   const [isRefreshing, setIsRefreshing] = useState(false);
@@ -581,6 +581,18 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
         >
           <Tag className="w-4 h-4 text-emerald-400" />
           <span>کدهای تخفیف ({activeCoupons.length})</span>
+        </button>
+
+        <button
+          onClick={() => setActiveTab('seo')}
+          className={`pb-3 text-sm font-bold border-b-2 transition-all flex items-center gap-2 whitespace-nowrap ${
+            activeTab === 'seo'
+              ? 'border-amber-400 text-amber-400'
+              : 'border-transparent text-zinc-400 hover:text-zinc-200'
+          }`}
+        >
+          <Globe className="w-4 h-4 text-blue-400" />
+          <span>ابزارهای وب‌مستر و سئو (SEO)</span>
         </button>
 
         <button
@@ -1858,6 +1870,277 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
             ذخیره تغییرات تنظیمات
           </button>
 
+        </div>
+      )}
+
+      {/* SEO & WEBMASTER TOOLS TAB (Rank Math Style) */}
+      {activeTab === 'seo' && (
+        <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-5 sm:p-6 space-y-6">
+          {/* Header Banner */}
+          <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 p-4 rounded-xl bg-gradient-to-r from-blue-950/40 via-zinc-900 to-amber-950/20 border border-blue-500/30">
+            <div className="flex items-center gap-3">
+              <div className="p-3 bg-blue-500/10 text-blue-400 rounded-xl border border-blue-500/30">
+                <Globe className="w-6 h-6" />
+              </div>
+              <div>
+                <div className="flex items-center gap-2">
+                  <h3 className="text-base font-extrabold text-white">پیشخوان سئو و ابزارهای وب‌مستر (Rank Math SEO)</h3>
+                  <span className="bg-blue-500/20 text-blue-400 text-[10px] font-bold px-2 py-0.5 rounded-md border border-blue-500/30">
+                    فعال
+                  </span>
+                </div>
+                <p className="text-xs text-zinc-400 mt-0.5">
+                  تنظیمات کامل متاتگ‌ها، گوگل سرچ کنسول، نقشه سایت، robots.txt و فید موتورهای مقایسه قیمت (ترب و ایمالز)
+                </p>
+              </div>
+            </div>
+
+            <button
+              onClick={() => {
+                onSaveSettings(tempSettings);
+                onShowToast('تنظیمات سئو و ابزارهای وب‌مستر با موفقیت ذخیره شد');
+              }}
+              className="bg-amber-500 hover:bg-amber-400 text-zinc-950 text-xs font-extrabold px-4 py-2.5 rounded-xl transition-colors shadow-lg flex items-center justify-center gap-1.5 shrink-0"
+            >
+              <CheckCircle2 className="w-4 h-4" />
+              <span>ذخیره کلی تنظیمات سئو</span>
+            </button>
+          </div>
+
+          {/* Grid Layout for SEO Sections */}
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+
+            {/* Section 1: Titles & Meta Tags + Live Google Preview */}
+            <div className="bg-zinc-950/80 border border-zinc-800 p-4 rounded-xl space-y-4">
+              <h4 className="text-sm font-bold text-amber-400 flex items-center gap-2 border-b border-zinc-800 pb-2">
+                <Search className="w-4 h-4" />
+                <span>عنوان‌ها و متاتگ‌های سئو (SEO Titles & Meta)</span>
+              </h4>
+
+              <div>
+                <label className="block text-xs font-medium text-zinc-300 mb-1">عنوان سئو برگه اصلی (SEO Title)</label>
+                <input
+                  type="text"
+                  value={tempSettings.seoTitle || tempSettings.storeName}
+                  onChange={(e) => setTempSettings({ ...tempSettings, seoTitle: e.target.value })}
+                  placeholder="فروشگاه عینک استوک جهانی | عینک آفتابی و طبی اورجینال"
+                  className="w-full bg-zinc-900 border border-zinc-800 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-amber-500"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-medium text-zinc-300 mb-1">توضیحات متای سئو (Meta Description)</label>
+                <textarea
+                  rows={3}
+                  value={tempSettings.seoDescription || tempSettings.tagline}
+                  onChange={(e) => setTempSettings({ ...tempSettings, seoDescription: e.target.value })}
+                  placeholder="فروشگاه آنلاین عینک‌های استوک اورجینال، عینک آفتابی خلبانی، طبی کائوچویی و ورزشی ساخت اروپا با ضمانت و ارسال پستی..."
+                  className="w-full bg-zinc-900 border border-zinc-800 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-amber-500"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-medium text-zinc-300 mb-1">کلمات کلیدی اصلی (SEO Keywords)</label>
+                <input
+                  type="text"
+                  value={tempSettings.seoKeywords || 'عینک استوک, عینک آفتابی, عینک طبی, عینک خلبانی, خرید عینک'}
+                  onChange={(e) => setTempSettings({ ...tempSettings, seoKeywords: e.target.value })}
+                  placeholder="عینک استوک, عینک آفتابی, عینک طبی, خرید آنلاین عینک"
+                  className="w-full bg-zinc-900 border border-zinc-800 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-amber-500"
+                />
+              </div>
+
+              {/* Live Google Search Snippet Preview */}
+              <div className="bg-zinc-900 p-3.5 rounded-xl border border-zinc-800/80 space-y-1.5">
+                <span className="text-[10px] text-zinc-400 font-bold block">پیش‌نمایش در نتایج جستجوی گوگل (Google Snippet Preview):</span>
+                <div className="font-sans text-right dir-rtl space-y-0.5 pt-1">
+                  <div className="text-xs text-emerald-400 font-mono dir-ltr text-right truncate">
+                    {window.location.origin}
+                  </div>
+                  <div className="text-sm font-bold text-blue-400 hover:underline cursor-pointer truncate">
+                    {tempSettings.seoTitle || tempSettings.storeName || 'فروشگاه عینک استوک جهانی'}
+                  </div>
+                  <p className="text-xs text-zinc-400 line-clamp-2 leading-snug">
+                    {tempSettings.seoDescription || tempSettings.tagline || 'خرید انواع عینک‌های آفتابی و طبی اورجینال با بهترین قیمت'}
+                  </p>
+                </div>
+              </div>
+            </div>
+
+            {/* Section 2: Webmaster Tools Verification Tags */}
+            <div className="bg-zinc-950/80 border border-zinc-800 p-4 rounded-xl space-y-4">
+              <h4 className="text-sm font-bold text-amber-400 flex items-center gap-2 border-b border-zinc-800 pb-2">
+                <Award className="w-4 h-4" />
+                <span>ابزارهای وب‌مستر (Google & Bing Verification)</span>
+              </h4>
+
+              <div>
+                <label className="block text-xs font-medium text-zinc-300 mb-1">کد تایید گوگل سرچ کنسول (Google Search Console)</label>
+                <input
+                  type="text"
+                  value={tempSettings.googleSiteVerification || ''}
+                  onChange={(e) => setTempSettings({ ...tempSettings, googleSiteVerification: e.target.value })}
+                  placeholder="کد یا متاتگ google-site-verification..."
+                  className="w-full bg-zinc-900 border border-zinc-800 rounded-xl px-3 py-2 text-xs text-white font-mono dir-ltr text-right focus:outline-none focus:border-amber-500"
+                />
+                <span className="text-[10px] text-zinc-500 block mt-1">
+                  کدی که در گوگل سرچ کنسول هنگام افزودن سایت دریافت می‌کنید را اینجا وارد کنید.
+                </span>
+              </div>
+
+              <div>
+                <label className="block text-xs font-medium text-zinc-300 mb-1">کد تایید بینگ و یاندکس (Bing/Yandex Verification)</label>
+                <input
+                  type="text"
+                  value={tempSettings.bingSiteVerification || ''}
+                  onChange={(e) => setTempSettings({ ...tempSettings, bingSiteVerification: e.target.value })}
+                  placeholder="کد tification بینگ یا یاندکس..."
+                  className="w-full bg-zinc-900 border border-zinc-800 rounded-xl px-3 py-2 text-xs text-white font-mono dir-ltr text-right focus:outline-none focus:border-amber-500"
+                />
+              </div>
+
+              {/* Analytics IDs */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-2 border-t border-zinc-800">
+                <div>
+                  <label className="block text-[11px] font-medium text-zinc-300 mb-1">گوگل آنالیتیکس (GA4 Measurement ID)</label>
+                  <input
+                    type="text"
+                    value={tempSettings.googleAnalyticsId || ''}
+                    onChange={(e) => setTempSettings({ ...tempSettings, googleAnalyticsId: e.target.value })}
+                    placeholder="G-XXXXXXXXXX"
+                    className="w-full bg-zinc-900 border border-zinc-800 rounded-xl px-2.5 py-1.5 text-xs text-white font-mono dir-ltr text-right"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-[11px] font-medium text-zinc-300 mb-1">ماکروسافت کلاریتی (Microsoft Clarity ID)</label>
+                  <input
+                    type="text"
+                    value={tempSettings.clarityProjectId || ''}
+                    onChange={(e) => setTempSettings({ ...tempSettings, clarityProjectId: e.target.value })}
+                    placeholder="کد پروژه clarity..."
+                    className="w-full bg-zinc-900 border border-zinc-800 rounded-xl px-2.5 py-1.5 text-xs text-white font-mono dir-ltr text-right"
+                  />
+                </div>
+              </div>
+            </div>
+
+            {/* Section 3: XML Sitemap & Robots.txt Editor */}
+            <div className="bg-zinc-950/80 border border-zinc-800 p-4 rounded-xl space-y-4">
+              <h4 className="text-sm font-bold text-amber-400 flex items-center gap-2 border-b border-zinc-800 pb-2">
+                <Globe className="w-4 h-4" />
+                <span>نقشه سایت و ویرایش robots.txt</span>
+              </h4>
+
+              <div className="bg-zinc-900 p-3 rounded-xl border border-zinc-800 flex items-center justify-between gap-3">
+                <div>
+                  <span className="text-xs font-bold text-white block">نقشه سایت آنلاین (XML Sitemap)</span>
+                  <span className="text-[10px] text-zinc-400 font-mono dir-ltr block text-right">/sitemap.xml</span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <a
+                    href={`${window.location.origin}/sitemap.xml`}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="bg-blue-500/10 hover:bg-blue-500/20 text-blue-400 border border-blue-500/30 px-3 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1 transition-colors"
+                  >
+                    <span>مشاهده</span>
+                    <ExternalLink className="w-3.5 h-3.5" />
+                  </a>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      navigator.clipboard.writeText(`${window.location.origin}/sitemap.xml`);
+                      onShowToast('لینک نقشه سایت برای گوگل کپی شد');
+                    }}
+                    className="bg-zinc-800 hover:bg-zinc-700 text-zinc-300 p-1.5 rounded-lg transition-colors"
+                    title="کپی آدرس sitemap.xml"
+                  >
+                    <Copy className="w-4 h-4" />
+                  </button>
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-xs font-medium text-zinc-300 mb-1">ویرایش فایل robots.txt</label>
+                <textarea
+                  rows={4}
+                  value={
+                    tempSettings.robotsTxtContent !== undefined
+                      ? tempSettings.robotsTxtContent
+                      : `User-agent: *\nAllow: /\nDisallow: /admin\nSitemap: ${window.location.origin}/sitemap.xml`
+                  }
+                  onChange={(e) => setTempSettings({ ...tempSettings, robotsTxtContent: e.target.value })}
+                  className="w-full bg-zinc-900 border border-zinc-800 rounded-xl p-3 text-xs text-zinc-200 font-mono dir-ltr focus:outline-none focus:border-amber-500"
+                />
+              </div>
+            </div>
+
+            {/* Section 4: Price Comparison Engines (Torob & Emalls) */}
+            <div className="bg-zinc-950/80 border border-zinc-800 p-4 rounded-xl space-y-4">
+              <h4 className="text-sm font-bold text-amber-400 flex items-center gap-2 border-b border-zinc-800 pb-2">
+                <Sparkles className="w-4 h-4" />
+                <span>اتصال به موتورهای ترب (Torob) و ایمالز (Emalls)</span>
+              </h4>
+
+              <div className="space-y-3">
+                {/* Torob Feed */}
+                <div className="bg-zinc-900 p-3 rounded-xl border border-zinc-800 flex items-center justify-between gap-3">
+                  <div>
+                    <span className="text-xs font-bold text-rose-400 block">فید اختصاصی محصولات برای ترب (Torob Feed)</span>
+                    <span className="text-[10px] text-zinc-400 font-mono dir-ltr block text-right">/api/feed/torob</span>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      navigator.clipboard.writeText(`${window.location.origin}/api/feed/torob`);
+                      onShowToast('لینک فید ترب کپی شد');
+                    }}
+                    className="bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 border border-rose-500/30 px-3 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1 transition-colors"
+                  >
+                    <Copy className="w-3.5 h-3.5" />
+                    <span>کپی فید ترب</span>
+                  </button>
+                </div>
+
+                {/* Emalls Feed */}
+                <div className="bg-zinc-900 p-3 rounded-xl border border-zinc-800 flex items-center justify-between gap-3">
+                  <div>
+                    <span className="text-xs font-bold text-amber-400 block">فید اختصاصی محصولات برای ایمالز (Emalls Feed)</span>
+                    <span className="text-[10px] text-zinc-400 font-mono dir-ltr block text-right">/api/feed/emalls</span>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      navigator.clipboard.writeText(`${window.location.origin}/api/feed/emalls`);
+                      onShowToast('لینک فید ایمالز کپی شد');
+                    }}
+                    className="bg-amber-500/10 hover:bg-amber-500/20 text-amber-400 border border-amber-500/30 px-3 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1 transition-colors"
+                  >
+                    <Copy className="w-3.5 h-3.5" />
+                    <span>کپی فید ایمالز</span>
+                  </button>
+                </div>
+              </div>
+
+              <div className="p-3 bg-zinc-900/60 rounded-xl border border-zinc-800/60 text-[11px] text-zinc-400 space-y-1">
+                <span className="font-bold text-amber-400 block">💡 راهنمای اتصال به ترب و ایمالز:</span>
+                <p>در پنل فروشندگان ترب یا ایمالز ثبت‌نام کنید و لینک‌های فید بالا را در بخش «لینک دریافت خودکار محصولات» قرار دهید تا تمام عینک‌های شما خودکار در ترب نمایش داده شوند.</p>
+              </div>
+            </div>
+
+          </div>
+
+          <button
+            onClick={() => {
+              onSaveSettings(tempSettings);
+              onShowToast('تنظیمات سئو و ابزارهای وب‌مستر با موفقیت ذخیره شد');
+            }}
+            className="w-full bg-amber-500 hover:bg-amber-400 text-zinc-950 font-bold py-2.5 rounded-xl text-xs transition-colors shadow-lg flex items-center justify-center gap-2"
+          >
+            <CheckCircle2 className="w-4 h-4" />
+            <span>ذخیره کلیه تنظیمات سئو و وب‌مستر</span>
+          </button>
         </div>
       )}
 

@@ -100,4 +100,14 @@ export interface StoreSettings {
   enableOnlineGateway?: boolean;
   zarinpalMerchantId?: string;
   zarinpalSandbox?: boolean;
+  seoTitle?: string;
+  seoDescription?: string;
+  seoKeywords?: string;
+  googleSiteVerification?: string;
+  bingSiteVerification?: string;
+  torobFeedEnabled?: boolean;
+  emallsFeedEnabled?: boolean;
+  robotsTxtContent?: string;
+  googleAnalyticsId?: string;
+  clarityProjectId?: string;
 }
