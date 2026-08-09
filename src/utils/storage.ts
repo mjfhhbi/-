@@ -223,8 +223,8 @@ export async function saveStoredProducts(products: Product[]): Promise<boolean> 
     }
   })();
 
-  // Fire Express API sync quickly and resolve immediately
-  await withTimeout(apiPromise, 300).catch(() => {});
+  // Fire Express API sync with adequate timeout
+  await withTimeout(apiPromise, 5000).catch(() => {});
   return true;
 }
 
@@ -539,7 +539,7 @@ export async function saveSingleOrder(order: Order): Promise<boolean> {
 
   let savedRemote = false;
   try {
-    const apiResult = await withTimeout(apiPromise, 300).catch(() => false);
+    const apiResult = await withTimeout(apiPromise, 5000).catch(() => false);
     if (apiResult === true) savedRemote = true;
   } catch (e) {
     console.warn('Express order sync notice:', e);
@@ -767,11 +767,11 @@ export async function fetchServerData(): Promise<{ products: Product[]; orders: 
         productsSnap.forEach((d) => d.exists() && fsProducts.push(d.data() as Product));
         if (settingsDoc.exists()) fsSettings = settingsDoc.data() as StoreSettings;
       }),
-      250
+      4000
     ).catch(() => {})
   ]);
 
-  await withTimeout(remoteSync, 250).catch(() => {});
+  await withTimeout(remoteSync, 4000).catch(() => {});
 
   const deletedProductIds = getDeletedProductIds();
   const deletedOrderIds = getDeletedOrderIds();
@@ -814,6 +814,7 @@ export function subscribeToFirestore(
 ) {
   let lastServerVersion = 0;
   let lastStateHash = '';
+  let isPolling = false;
 
   // Supabase Realtime Subscription if configured by user
   const supabase = getSupabaseClient();
@@ -837,38 +838,44 @@ export function subscribeToFirestore(
 
   // Fast light-weight version check (sub-10ms endpoint check)
   const pollServerVersion = async () => {
+    if (isPolling) return;
+    isPolling = true;
     try {
-      const vRes = await fetch('/api/version?t=' + Date.now(), { cache: 'no-store' });
-      if (vRes.ok) {
-        const vData = await vRes.json();
-        if (vData && vData.version && vData.version !== lastServerVersion) {
-          lastServerVersion = vData.version;
-          const freshData = await fetchServerData();
-          if (freshData) {
-            onDataUpdate(freshData);
+      try {
+        const vRes = await fetch('/api/version?t=' + Date.now(), { cache: 'no-store' });
+        if (vRes.ok) {
+          const vData = await vRes.json();
+          if (vData && vData.version && vData.version !== lastServerVersion) {
+            lastServerVersion = vData.version;
+            const freshData = await fetchServerData();
+            if (freshData) {
+              onDataUpdate(freshData);
+            }
+            return;
           }
-          return;
         }
-      }
-    } catch (e) {}
+      } catch (e) {}
 
-    // Fallback hash polling
-    try {
-      const serverData = await fetchServerData();
-      if (serverData) {
-        const currentHash = JSON.stringify({
-          pCount: serverData.products.length,
-          oCount: serverData.orders.length,
-          pMod: serverData.products.map(p => `${p.id}_${p.stock}_${p.price}`),
-          oMod: serverData.orders.map(o => `${o.id}_${o.status}_${o.postalTrackingCode || ''}_${o.isPaid}`)
-        });
+      // Fallback hash polling
+      try {
+        const serverData = await fetchServerData();
+        if (serverData) {
+          const currentHash = JSON.stringify({
+            pCount: serverData.products.length,
+            oCount: serverData.orders.length,
+            pMod: serverData.products.map(p => `${p.id}_${p.stock}_${p.price}`),
+            oMod: serverData.orders.map(o => `${o.id}_${o.status}_${o.postalTrackingCode || ''}_${o.isPaid}`)
+          });
 
-        if (currentHash !== lastStateHash) {
-          lastStateHash = currentHash;
-          onDataUpdate(serverData);
+          if (currentHash !== lastStateHash) {
+            lastStateHash = currentHash;
+            onDataUpdate(serverData);
+          }
         }
-      }
-    } catch (e) {}
+      } catch (e) {}
+    } finally {
+      isPolling = false;
+    }
   };
 
   pollServerVersion();

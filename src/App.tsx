@@ -88,10 +88,10 @@ export default function App() {
       const serverData = await fetchServerData();
       if (serverData) {
         if (Array.isArray(serverData.products)) {
-          setProducts(serverData.products);
+          setProducts((prev) => mergeProductsList(prev, serverData.products));
         }
         if (Array.isArray(serverData.orders)) {
-          setOrders(serverData.orders);
+          setOrders((prev) => mergeOrdersList(prev, serverData.orders));
         }
         if (serverData.settings) {
           setSettings(serverData.settings);
@@ -118,8 +118,8 @@ export default function App() {
 
     // Live subscription for instant updates across devices
     const unsubscribeSync = subscribeToFirestore(({ products, orders, settings }) => {
-      if (Array.isArray(products)) setProducts(products);
-      if (Array.isArray(orders)) setOrders(orders);
+      if (Array.isArray(products)) setProducts((prev) => mergeProductsList(prev, products));
+      if (Array.isArray(orders)) setOrders((prev) => mergeOrdersList(prev, orders));
       if (settings) setSettings(settings);
     });
 
