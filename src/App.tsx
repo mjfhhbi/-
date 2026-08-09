@@ -455,116 +455,127 @@ export default function App() {
 
       {/* Main Body Content */}
       <main className="flex-1">
-        {currentView === 'store' ? (
-          <div className="max-w-7xl mx-auto px-4 sm:px-6 py-6 space-y-8">
-            
-            {/* Hero Section */}
-            <StoreHero settings={settings} />
+        <AnimatePresence mode="wait">
+          <motion.div
+            key={currentView}
+            initial={{ opacity: 0, y: 10 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -10 }}
+            transition={{ duration: 0.28, ease: [0.16, 1, 0.3, 1] }}
+          >
+            {currentView === 'store' ? (
+              <div className="max-w-7xl mx-auto px-4 sm:px-6 py-6 space-y-8">
+                
+                {/* Hero Section */}
+                <StoreHero settings={settings} />
 
-            {/* Products Grid Header */}
-            <div className="flex items-center justify-between border-b border-zinc-800 pb-3 text-right dir-rtl">
-              <div>
-                <h2 className="text-lg font-black text-white flex items-center gap-2">
-                  <Glasses className="w-5 h-5 text-amber-400" />
-                  <span>
-                    {selectedCategory === 'all'
-                      ? 'ویترین کامل عینک‌ها'
-                      : `عینک‌های دسته ${
-                          selectedCategory === 'sunglasses'
-                            ? 'آفتابی'
-                            : selectedCategory === 'optical'
-                            ? 'طبی'
-                            : selectedCategory === 'sport'
-                            ? 'ورزشی'
-                            : 'یونی‌سکس'
-                        }`}
-                  </span>
-                </h2>
-                <p className="text-xs text-zinc-400 font-light mt-0.5">
-                  نمایش {filteredProducts.length} محصول از مجموعه {settings.storeName}
-                </p>
-              </div>
+                {/* Products Grid Header */}
+                <div className="flex items-center justify-between border-b border-zinc-800 pb-3 text-right dir-rtl">
+                  <div>
+                    <h2 className="text-lg font-black text-white flex items-center gap-2">
+                      <Glasses className="w-5 h-5 text-amber-400" />
+                      <span>
+                        {selectedCategory === 'all'
+                          ? 'ویترین کامل عینک‌ها'
+                          : `عینک‌های دسته ${
+                              selectedCategory === 'sunglasses'
+                                ? 'آفتابی'
+                                : selectedCategory === 'optical'
+                                ? 'طبی'
+                                : selectedCategory === 'sport'
+                                ? 'ورزشی'
+                                : 'یونی‌سکس'
+                            }`}
+                      </span>
+                    </h2>
+                    <p className="text-xs text-zinc-400 font-light mt-0.5">
+                      نمایش {filteredProducts.length} محصول از مجموعه {settings.storeName}
+                    </p>
+                  </div>
 
-              {/* Quick Admin Access pill */}
-              <button
-                onClick={() => handleViewChange('admin')}
-                className="text-xs text-amber-400 hover:text-amber-300 font-medium flex items-center gap-1 bg-amber-500/10 hover:bg-amber-500/20 px-3 py-1.5 rounded-xl border border-amber-500/20 transition-colors"
-              >
-                <ShieldCheck className="w-4 h-4" />
-                <span>ورود به پنل مدیریت</span>
-              </button>
-            </div>
-
-            {/* Products Grid / Empty States */}
-            {filteredProducts.length === 0 ? (
-              <div className="bg-zinc-900/40 border-2 border-dashed border-zinc-800 rounded-3xl p-10 text-center space-y-4 my-8 text-right dir-rtl">
-                <div className="w-16 h-16 rounded-2xl bg-zinc-800/80 text-amber-400 flex items-center justify-center mx-auto">
-                  <Glasses className="w-8 h-8 stroke-[1.5]" />
-                </div>
-                <div className="max-w-md mx-auto space-y-1">
-                  <h3 className="text-base font-bold text-white">هنوز محصولی ثبت نشده است</h3>
-                  <p className="text-xs text-zinc-400 leading-relaxed">
-                    اگر مدیر فروشگاه هستید، می‌توانید از طریق پنل مدیریت عکس‌ها، قیمت و مشخصات عینک‌های خود را وارد نمایید.
-                  </p>
-                </div>
-
-                <div className="flex flex-wrap items-center justify-center gap-3 pt-2">
+                  {/* Quick Admin Access pill */}
                   <button
                     onClick={() => handleViewChange('admin')}
-                    className="bg-amber-500 hover:bg-amber-400 text-zinc-950 px-5 py-2.5 rounded-xl text-xs font-extrabold flex items-center gap-2 transition-all shadow-lg shadow-amber-500/20"
+                    className="text-xs text-amber-400 hover:text-amber-300 font-medium flex items-center gap-1 bg-amber-500/10 hover:bg-amber-500/20 px-3 py-1.5 rounded-xl border border-amber-500/20 transition-colors"
                   >
-                    <Plus className="w-4 h-4 stroke-[3]" />
-                    <span>ورود به پنل مدیریت و افزودن عینک</span>
-                  </button>
-
-                  <button
-                    onClick={handleLoadDemoProducts}
-                    className="bg-zinc-800 hover:bg-zinc-700 text-zinc-300 px-4 py-2.5 rounded-xl text-xs font-bold flex items-center gap-2 transition-colors"
-                  >
-                    <RefreshCw className="w-4 h-4" />
-                    <span>مشاهده چند نمونه تست</span>
+                    <ShieldCheck className="w-4 h-4" />
+                    <span>ورود به پنل مدیریت</span>
                   </button>
                 </div>
+
+                {/* Products Grid / Empty States */}
+                {filteredProducts.length === 0 ? (
+                  <div className="bg-zinc-900/40 border-2 border-dashed border-zinc-800 rounded-3xl p-10 text-center space-y-4 my-8 text-right dir-rtl">
+                    <div className="w-16 h-16 rounded-2xl bg-zinc-800/80 text-amber-400 flex items-center justify-center mx-auto">
+                      <Glasses className="w-8 h-8 stroke-[1.5]" />
+                    </div>
+                    <div className="max-w-md mx-auto space-y-1">
+                      <h3 className="text-base font-bold text-white">هنوز محصولی ثبت نشده است</h3>
+                      <p className="text-xs text-zinc-400 leading-relaxed">
+                        اگر مدیر فروشگاه هستید، می‌توانید از طریق پنل مدیریت عکس‌ها، قیمت و مشخصات عینک‌های خود را وارد نمایید.
+                      </p>
+                    </div>
+
+                    <div className="flex flex-wrap items-center justify-center gap-3 pt-2">
+                      <button
+                        onClick={() => handleViewChange('admin')}
+                        className="bg-amber-500 hover:bg-amber-400 text-zinc-950 px-5 py-2.5 rounded-xl text-xs font-extrabold flex items-center gap-2 transition-all shadow-lg shadow-amber-500/20"
+                      >
+                        <Plus className="w-4 h-4 stroke-[3]" />
+                        <span>ورود به پنل مدیریت و افزودن عینک</span>
+                      </button>
+
+                      <button
+                        onClick={handleLoadDemoProducts}
+                        className="bg-zinc-800 hover:bg-zinc-700 text-zinc-300 px-4 py-2.5 rounded-xl text-xs font-bold flex items-center gap-2 transition-colors"
+                      >
+                        <RefreshCw className="w-4 h-4" />
+                        <span>مشاهده چند نمونه تست</span>
+                      </button>
+                    </div>
+                  </div>
+                ) : (
+                  <motion.div
+                    layout
+                    className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-5"
+                  >
+                    <AnimatePresence>
+                      {filteredProducts.map((product, index) => (
+                        <ProductCard
+                          key={product.id}
+                          product={product}
+                          revealDelay={Math.min(index, 12) * 0.045}
+                          onSelectProduct={(p) => setSelectedProduct(p)}
+                          onAddToCart={(p) => handleAddToCart(p, 1)}
+                          isCompared={comparedProducts.some((cp) => cp.id === product.id)}
+                          onToggleCompare={handleToggleCompare}
+                          onQuickView={(p) => setQuickViewProduct(p)}
+                        />
+                      ))}
+                    </AnimatePresence>
+                  </motion.div>
+                )}
+
               </div>
             ) : (
-              <motion.div
-                layout
-                className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-5"
-              >
-                <AnimatePresence>
-                  {filteredProducts.map((product) => (
-                    <ProductCard
-                      key={product.id}
-                      product={product}
-                      onSelectProduct={(p) => setSelectedProduct(p)}
-                      onAddToCart={(p) => handleAddToCart(p, 1)}
-                      isCompared={comparedProducts.some((cp) => cp.id === product.id)}
-                      onToggleCompare={handleToggleCompare}
-                      onQuickView={(p) => setQuickViewProduct(p)}
-                    />
-                  ))}
-                </AnimatePresence>
-              </motion.div>
+              /* Admin Management Panel View */
+              <AdminPanel
+                products={products}
+                orders={orders}
+                settings={settings}
+                onSaveProduct={handleSaveProduct}
+                onDeleteProduct={handleDeleteProduct}
+                onUpdateOrderStatus={handleUpdateOrderStatus}
+                onDeleteOrder={handleDeleteOrder}
+                onSaveSettings={handleSaveSettings}
+                onShowToast={showToast}
+                onLoadDemoProducts={handleLoadDemoProducts}
+                onOpenInvoice={(order) => setSelectedInvoiceOrder(order)}
+                onRefreshData={syncWithServer}
+              />
             )}
-
-          </div>
-        ) : (
-          /* Admin Management Panel View */
-          <AdminPanel
-            products={products}
-            orders={orders}
-            settings={settings}
-            onSaveProduct={handleSaveProduct}
-            onDeleteProduct={handleDeleteProduct}
-            onUpdateOrderStatus={handleUpdateOrderStatus}
-            onDeleteOrder={handleDeleteOrder}
-            onSaveSettings={handleSaveSettings}
-            onShowToast={showToast}
-            onLoadDemoProducts={handleLoadDemoProducts}
-            onOpenInvoice={(order) => setSelectedInvoiceOrder(order)}
-            onRefreshData={syncWithServer}
-          />
-        )}
+          </motion.div>
+        </AnimatePresence>
       </main>
 
       {/* Product Detail Modal */}

@@ -15,6 +15,7 @@ interface ProductCardProps {
   isCompared?: boolean;
   onToggleCompare?: (p: Product) => void;
   onQuickView?: (p: Product) => void;
+  revealDelay?: number;
 }
 
 export const ProductCard: React.FC<ProductCardProps> = ({
@@ -27,6 +28,7 @@ export const ProductCard: React.FC<ProductCardProps> = ({
   isCompared = false,
   onToggleCompare,
   onQuickView,
+  revealDelay = 0,
 }) => {
   const [currentImgIndex, setCurrentImgIndex] = useState(0);
   const [added, setAdded] = useState(false);
@@ -59,7 +61,7 @@ export const ProductCard: React.FC<ProductCardProps> = ({
       exit={{ opacity: 0, scale: 0.95 }}
       whileHover={{ y: -4, transition: { duration: 0.2, ease: 'easeOut' } }}
       whileTap={{ scale: 0.98 }}
-      transition={{ duration: 0.22, ease: [0.16, 1, 0.3, 1] }}
+      transition={{ duration: 0.22, ease: [0.16, 1, 0.3, 1], delay: revealDelay }}
       onClick={() => onSelectProduct(product)}
       className="group relative bg-zinc-900/90 border border-zinc-800/90 hover:border-amber-500/40 rounded-2xl overflow-hidden shadow-lg transition-colors duration-300 flex flex-col cursor-pointer"
     >
