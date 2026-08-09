@@ -738,7 +738,7 @@ export async function fetchServerData(): Promise<{ products: Product[]; orders: 
     console.warn('Express API fetch notice:', e);
   }
 
-  // 2. Fetch from Supabase and Firestore asynchronously with 250ms max timeout
+  // 2. Fetch from Supabase and Firestore asynchronously with 4s max timeout
   const supabase = getSupabaseClient();
   const remoteSync = Promise.allSettled([
     supabase
