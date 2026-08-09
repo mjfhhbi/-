@@ -939,12 +939,12 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                         <button
                           onClick={() => {
                             onUpdateOrderStatus(ord.id, 'confirmed');
-                            onShowToast('فیش واریزی تایید و پیامک اطلاع‌رسانی برای خریدار ارسال گردید');
+                            onShowToast('فیش واریزی تایید شد. برای اطلاع مشتری، پیامش رو از طریق تلگرام/تماس پیگیری کنید');
                           }}
                           className="bg-emerald-500 hover:bg-emerald-400 text-zinc-950 font-extrabold px-3 py-1.5 rounded-xl text-xs flex items-center gap-1 transition-colors shadow-sm"
                         >
                           <CheckCircle2 className="w-3.5 h-3.5" />
-                          <span>تایید واریزی و ارسال پیامک</span>
+                          <span>تایید واریزی</span>
                         </button>
                       )}
 

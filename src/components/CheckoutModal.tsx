@@ -345,7 +345,7 @@ export const CheckoutModal: React.FC<CheckoutModalProps> = ({
                 <div>
                   <label className="block text-xs font-medium text-zinc-300 mb-1 flex items-center gap-1">
                     <Phone className="w-3.5 h-3.5 text-amber-400" />
-                    <span>شماره موبایل جهت پیامک رهگیری *</span>
+                    <span>شماره موبایل جهت پیگیری سفارش *</span>
                   </label>
                   <input
                     type="tel"
@@ -711,15 +711,15 @@ export const CheckoutModal: React.FC<CheckoutModalProps> = ({
                   )}
                 </div>
 
-                {/* SMS Notification Confirmation Alert */}
+                {/* Order Confirmation Alert */}
                 <div className="bg-emerald-500/10 border border-emerald-500/30 p-3 rounded-xl text-right flex items-center gap-3">
                   <div className="w-8 h-8 rounded-lg bg-emerald-500/20 text-emerald-400 flex items-center justify-center shrink-0">
                     <MessageSquare className="w-4 h-4" />
                   </div>
                   <div>
-                    <span className="text-xs font-bold text-emerald-400 block">ارسال پیامک تایید ثبت سفارش:</span>
+                    <span className="text-xs font-bold text-emerald-400 block">سفارش شما با موفقیت ثبت شد:</span>
                     <span className="text-[11px] text-zinc-300">
-                      پیامک تایید سفارش به شماره <span className="font-mono text-amber-400 font-bold">{createdOrder.customer.phone}</span> ارسال گردید (سامانه کاوه‌نگار).
+                      برای پیگیری وضعیت سفارش، از شماره <span className="font-mono text-amber-400 font-bold">{createdOrder.customer.phone}</span> در بخش «پیگیری سفارشات» بالای سایت استفاده کنید.
                     </span>
                   </div>
                 </div>
