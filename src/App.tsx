@@ -250,18 +250,30 @@ export default function App() {
 
   // Cart Logic
   const handleAddToCart = (product: Product, quantity = 1) => {
+    let blocked = false;
     setCartItems((prev) => {
       const existing = prev.find((item) => item.product.id === product.id);
+      const currentQty = existing ? existing.quantity : 0;
+      const maxAllowed = Math.max(0, product.stock - currentQty);
+      const qtyToAdd = Math.min(quantity, maxAllowed);
+      if (qtyToAdd <= 0) {
+        blocked = true;
+        return prev;
+      }
       if (existing) {
         return prev.map((item) =>
           item.product.id === product.id
-            ? { ...item, quantity: item.quantity + quantity }
+            ? { ...item, quantity: item.quantity + qtyToAdd }
             : item
         );
       }
-      return [...prev, { product, quantity }];
+      return [...prev, { product, quantity: qtyToAdd }];
     });
-    showToast(`${product.title} به سبد خرید اضافه شد`);
+    if (blocked) {
+      showToast(`موجودی «${product.title}» بیشتر از این نیست`);
+    } else {
+      showToast(`${product.title} به سبد خرید اضافه شد`);
+    }
   };
 
   const handleUpdateCartQuantity = (productId: string, delta: number) => {
@@ -269,7 +281,7 @@ export default function App() {
       prev
         .map((item) => {
           if (item.product.id === productId) {
-            const newQty = item.quantity + delta;
+            const newQty = Math.min(item.quantity + delta, item.product.stock);
             return newQty > 0 ? { ...item, quantity: newQty } : null;
           }
           return item;
