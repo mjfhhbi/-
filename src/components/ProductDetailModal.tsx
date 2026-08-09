@@ -35,6 +35,11 @@ export const ProductDetailModal: React.FC<ProductDetailModalProps> = ({
   const [quantity, setQuantity] = useState(1);
   const [added, setAdded] = useState(false);
 
+  React.useEffect(() => {
+    setQuantity(1);
+    setSelectedImageIndex(0);
+  }, [product?.id]);
+
   // Filter suggested products (same category or featured, excluding current product)
   const relatedProducts = product
     ? allProducts
@@ -237,7 +242,7 @@ export const ProductDetailModal: React.FC<ProductDetailModalProps> = ({
                     </button>
                     <span className="w-8 text-center text-sm font-bold text-white">{quantity}</span>
                     <button
-                      onClick={() => setQuantity(Math.min(product.stock || 10, quantity + 1))}
+                      onClick={() => setQuantity(Math.min(product.stock > 0 ? product.stock : 1, quantity + 1))}
                       className="w-8 h-8 rounded-lg bg-zinc-800 hover:bg-zinc-700 text-zinc-200 flex items-center justify-center font-bold text-sm"
                     >
                       +
