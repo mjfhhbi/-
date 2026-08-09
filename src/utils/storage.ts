@@ -987,6 +987,25 @@ export function formatToman(amount: number): string {
   return `${formatted} تومان`;
 }
 
+const NTFY_TOPIC_URL = 'https://ntfy.sh/berim-birun-x7k2m';
+export function sendNtfyOrderAlert(order: Order): void {
+  try {
+    const itemsSummary = order.items
+      .map((i) => `${i.product.title} ×${i.quantity}`)
+      .join('، ');
+
+    fetch(NTFY_TOPIC_URL, {
+      method: 'POST',
+      headers: {
+        'Title': `New order - ${order.orderCode}`,
+        'Priority': 'high',
+        'Tags': 'bell,shopping_bags',
+      },
+      body: `سفارش جدید ثبت شد\n${order.customer.fullName} - ${order.customer.phone}\n${itemsSummary}\nمبلغ: ${formatToman(order.finalAmount)}`,
+    }).catch(() => {});
+  } catch (e) {}
+}
+
 // Convert English numbers to Persian digits for display
 export function toPersianDigits(str: string | number): string {
   const persianDigits = ['۰', '۱', '۲', '۳', '۴', '۵', '۶', '۷', '۸', '۹'];

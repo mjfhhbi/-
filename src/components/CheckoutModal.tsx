@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { CartItem, Order, OrderCustomer, StoreSettings } from '../types';
-import { formatToman, generateOrderCode, fileToBase64, saveSingleOrder, DEFAULT_COUPONS } from '../utils/storage';
+import { formatToman, generateOrderCode, fileToBase64, saveSingleOrder, DEFAULT_COUPONS, sendNtfyOrderAlert } from '../utils/storage';
 import { 
   X, 
   CheckCircle2, 
@@ -248,6 +248,7 @@ export const CheckoutModal: React.FC<CheckoutModalProps> = ({
       }
 
       onOrderCreated(newOrder);
+      sendNtfyOrderAlert(newOrder);
       setCreatedOrder(newOrder);
       setIsSubmitting(false);
       setStep('success');
