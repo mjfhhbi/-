@@ -110,4 +110,5 @@ export interface StoreSettings {
   robotsTxtContent?: string;
   googleAnalyticsId?: string;
   clarityProjectId?: string;
+  updatedAt?: string;
 }

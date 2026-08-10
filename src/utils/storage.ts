@@ -163,7 +163,12 @@ export function getStoredProducts(): Product[] {
 
 export async function saveStoredProducts(products: Product[]): Promise<boolean> {
   products.forEach((p) => {
-    if (p && p.id) removeDeletedProductId(p.id);
+    if (p && p.id) {
+      removeDeletedProductId(p.id);
+      if (!p.updatedAt) {
+        p.updatedAt = new Date().toISOString();
+      }
+    }
   });
 
   try {
@@ -183,19 +188,33 @@ export async function saveStoredProducts(products: Product[]): Promise<boolean> 
   // Sync to Supabase
   const supabase = getSupabaseClient();
   let supabasePromise = Promise.resolve();
-  if (supabase && products.length > 0) {
+  if (supabase) {
     supabasePromise = (async () => {
       try {
+        // Primary guaranteed store in Supabase: JSONB store in store_settings table under id='products_data'
         await supabase
-          .from('products')
-          .upsert(products.map((p) => ({ id: p.id, data: p, updated_at: new Date().toISOString() })));
+          .from('store_settings')
+          .upsert({
+            id: 'products_data',
+            data: { items: products, updatedAt: new Date().toISOString() },
+            updated_at: new Date().toISOString(),
+          });
+
+        // Also attempt upsert to products table if columns match
+        if (products.length > 0) {
+          try {
+            await supabase
+              .from('products')
+              .upsert(products.map((p) => ({ id: p.id, data: p, updated_at: new Date().toISOString() })));
+          } catch (e) {}
+        }
       } catch (sbErr) {
         console.warn('Supabase products sync error:', sbErr);
       }
     })();
   }
 
-  // Non-blocking background remote sync
+  // Non-blocking background remote sync for Firestore
   const firestorePromise = (async () => {
     try {
       const existingSnap = await withTimeout(getDocs(collection(db, 'products')), 2000);
@@ -223,8 +242,11 @@ export async function saveStoredProducts(products: Product[]): Promise<boolean> 
     }
   })();
 
-  // Fire Express API sync with adequate timeout
-  await withTimeout(apiPromise, 5000).catch(() => {});
+  await Promise.allSettled([
+    supabasePromise,
+    withTimeout(apiPromise, 3000),
+  ]);
+
   return true;
 }
 
@@ -295,6 +317,31 @@ export function removeDeletedOrderId(id: string) {
   } catch (e) {}
 }
 
+function parseTimestamp(dateStr?: string): number {
+  if (!dateStr) return 0;
+  const t = new Date(dateStr).getTime();
+  return isNaN(t) ? 0 : t;
+}
+
+// Helper to merge settings objects using updatedAt timestamps for conflict resolution
+export function mergeSettingsObjects(...settingsList: (StoreSettings | null | undefined)[]): StoreSettings {
+  let result: StoreSettings = { ...DEFAULT_SETTINGS };
+  let newestTimestamp = 0;
+
+  for (const s of settingsList) {
+    if (!s || typeof s !== 'object') continue;
+    const sTime = parseTimestamp(s.updatedAt);
+    if (sTime >= newestTimestamp) {
+      newestTimestamp = sTime;
+      result = { ...result, ...s };
+    } else {
+      result = { ...s, ...result };
+    }
+  }
+
+  return result;
+}
+
 // Helper to merge product lists seamlessly without losing local edits or additions
 export function mergeProductsList(...lists: Product[][]): Product[] {
   const deletedIds = getDeletedProductIds();
@@ -308,8 +355,8 @@ export function mergeProductsList(...lists: Product[][]): Product[] {
       if (!existing) {
         map.set(prod.id, prod);
       } else {
-        const existingTime = new Date(existing.updatedAt || existing.createdAt || 0).getTime();
-        const newTime = new Date(prod.updatedAt || prod.createdAt || 0).getTime();
+        const existingTime = parseTimestamp(existing.updatedAt || existing.createdAt);
+        const newTime = parseTimestamp(prod.updatedAt || prod.createdAt);
         if (newTime > existingTime) {
           map.set(prod.id, { ...existing, ...prod });
         } else if (existingTime > newTime) {
@@ -341,8 +388,8 @@ export function mergeOrdersList(...lists: Order[][]): Order[] {
       if (!existing) {
         map.set(order.id, order);
       } else {
-        const existingTime = new Date(existing.updatedAt || existing.createdAt || 0).getTime();
-        const newTime = new Date(order.updatedAt || order.createdAt || 0).getTime();
+        const existingTime = parseTimestamp(existing.updatedAt || existing.createdAt);
+        const newTime = parseTimestamp(order.updatedAt || order.createdAt);
         if (newTime > existingTime) {
           map.set(order.id, { ...existing, ...order });
         } else if (existingTime > newTime) {
@@ -365,7 +412,7 @@ export function mergeOrdersList(...lists: Order[][]): Order[] {
     }
   }
   return Array.from(map.values()).sort((a, b) =>
-    new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime()
+    parseTimestamp(b.createdAt) - parseTimestamp(a.createdAt)
   );
 }
 
@@ -576,8 +623,13 @@ export function getStoredSettings(): StoreSettings {
 }
 
 export async function saveStoredSettings(settings: StoreSettings): Promise<boolean> {
+  const updatedSettings: StoreSettings = {
+    ...settings,
+    updatedAt: settings.updatedAt || new Date().toISOString(),
+  };
+
   try {
-    localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings));
+    localStorage.setItem(SETTINGS_KEY, JSON.stringify(updatedSettings));
     notifyTabsOfChange();
   } catch (err) {
     console.error('Error saving settings locally:', err);
@@ -590,7 +642,7 @@ export async function saveStoredSettings(settings: StoreSettings): Promise<boole
       try {
         await supabase
           .from('store_settings')
-          .upsert({ id: 'main', data: settings, updated_at: new Date().toISOString() });
+          .upsert({ id: 'main', data: updatedSettings, updated_at: new Date().toISOString() });
       } catch (sbErr) {
         console.warn('Supabase settings sync error:', sbErr);
       }
@@ -601,11 +653,11 @@ export async function saveStoredSettings(settings: StoreSettings): Promise<boole
   fetch('/api/settings', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ settings }),
+    body: JSON.stringify({ settings: updatedSettings }),
   }).catch(() => {});
 
   // Background non-blocking Firestore sync
-  setDoc(doc(db, 'settings', 'store_settings'), cleanForFirestore(settings)).catch(() => {});
+  setDoc(doc(db, 'settings', 'store_settings'), cleanForFirestore(updatedSettings)).catch(() => {});
 
   return true;
 }
@@ -619,7 +671,10 @@ export async function deleteProductFromFirestore(productId: string): Promise<boo
     localStorage.setItem(PRODUCTS_KEY, JSON.stringify(remaining));
   } catch (e) {}
 
-  // Delete from Supabase if configured
+  // Save remaining products to Supabase products_data
+  await saveStoredProducts(remaining);
+
+  // Delete from Supabase products table if configured
   const supabase = getSupabaseClient();
   if (supabase) {
     try {
@@ -744,8 +799,17 @@ export async function fetchServerData(): Promise<{ products: Product[]; orders: 
     supabase
       ? (async () => {
           try {
-            const res = await supabase.from('products').select('*');
-            if (res?.data) sbProducts = res.data.map((r: any) => r.data || r).filter((p: any) => p && p.id);
+            // First check JSONB store in store_settings (id='products_data')
+            const resData = await supabase.from('store_settings').select('*').eq('id', 'products_data').maybeSingle();
+            if (resData?.data?.data?.items && Array.isArray(resData.data.data.items)) {
+              sbProducts = resData.data.data.items as Product[];
+            }
+            // Also check relational products table if populated
+            const resTable = await supabase.from('products').select('*');
+            if (resTable?.data && resTable.data.length > 0) {
+              const tableProds = resTable.data.map((r: any) => r.data || r).filter((p: any) => p && p.id);
+              sbProducts = mergeProductsList(sbProducts, tableProds);
+            }
           } catch (e) {}
         })()
       : Promise.resolve(),
@@ -788,16 +852,10 @@ export async function fetchServerData(): Promise<{ products: Product[]; orders: 
   const activeLocalProducts = localProducts.filter(p => p && p.id && !deletedProductIds.has(p.id));
   const activeLocalOrders = localOrders.filter(o => o && o.id && !deletedOrderIds.has(o.id));
 
-  // Safely merge products and orders from ALL sources
+  // Safely merge products, orders, and settings from ALL sources using timestamp-based conflict resolution
   const products = mergeProductsList(activeLocalProducts, sbProducts, apiProducts, fsProducts);
   const orders = mergeOrdersList(activeLocalOrders, sbOrders, apiOrders, fsOrders);
-  const settings: StoreSettings = {
-    ...DEFAULT_SETTINGS,
-    ...localSettings,
-    ...(fsSettings || {}),
-    ...(apiSettings || {}),
-    ...(sbSettings || {}),
-  };
+  const settings = mergeSettingsObjects(DEFAULT_SETTINGS, localSettings, fsSettings, apiSettings, sbSettings);
 
   try {
     localStorage.setItem(PRODUCTS_KEY, JSON.stringify(products));
@@ -815,7 +873,7 @@ export async function fetchServerData(): Promise<{ products: Product[]; orders: 
   return { products, orders, settings };
 }
 
-// Live real-time subscription for instant multi-device syncing with version polling
+// Live real-time subscription for instant multi-device syncing with active Firestore listeners & version polling
 export function subscribeToFirestore(
   onDataUpdate: (data: { products?: Product[]; orders?: Order[]; settings?: StoreSettings }) => void,
   onError?: (errMessage: string) => void
@@ -842,6 +900,91 @@ export function subscribeToFirestore(
     } catch (sbRealtimeErr) {
       console.warn('Supabase realtime channel error:', sbRealtimeErr);
     }
+  }
+
+  // Active Firestore onSnapshot listeners for instant broadcasting across clients
+  let unsubFsProducts: (() => void) | null = null;
+  let unsubFsOrders: (() => void) | null = null;
+  let unsubFsSettings: (() => void) | null = null;
+
+  try {
+    unsubFsProducts = onSnapshot(
+      collection(db, 'products'),
+      (snapshot) => {
+        const fsProds: Product[] = [];
+        snapshot.forEach((docSnap) => {
+          if (docSnap.exists()) {
+            const data = docSnap.data() as Product;
+            if (data && data.id) fsProds.push(data);
+          }
+        });
+        if (fsProds.length > 0) {
+          const localProds = getStoredProducts();
+          const mergedProds = mergeProductsList(localProds, fsProds);
+          try {
+            localStorage.setItem(PRODUCTS_KEY, JSON.stringify(mergedProds));
+          } catch (e) {}
+          onDataUpdate({ products: mergedProds });
+        }
+      },
+      (err) => {
+        console.warn('Firestore products snapshot notice:', err);
+      }
+    );
+  } catch (e) {
+    console.warn('Firestore products listener error:', e);
+  }
+
+  try {
+    unsubFsOrders = onSnapshot(
+      collection(db, 'orders'),
+      (snapshot) => {
+        const fsOrds: Order[] = [];
+        snapshot.forEach((docSnap) => {
+          if (docSnap.exists()) {
+            const data = docSnap.data() as Order;
+            if (data && data.id) fsOrds.push(data);
+          }
+        });
+        if (fsOrds.length > 0) {
+          const localOrds = getStoredOrders();
+          const mergedOrds = mergeOrdersList(localOrds, fsOrds);
+          try {
+            localStorage.setItem(ORDERS_KEY, JSON.stringify(mergedOrds));
+          } catch (e) {}
+          onDataUpdate({ orders: mergedOrds });
+        }
+      },
+      (err) => {
+        console.warn('Firestore orders snapshot notice:', err);
+      }
+    );
+  } catch (e) {
+    console.warn('Firestore orders listener error:', e);
+  }
+
+  try {
+    unsubFsSettings = onSnapshot(
+      doc(db, 'settings', 'store_settings'),
+      (docSnap) => {
+        if (docSnap.exists()) {
+          const fsSet = docSnap.data() as StoreSettings;
+          if (fsSet) {
+            const localSet = getStoredSettings();
+            const mergedSet = mergeSettingsObjects(localSet, fsSet);
+            try {
+              localStorage.setItem(SETTINGS_KEY, JSON.stringify(mergedSet));
+            } catch (e) {}
+            onDataUpdate({ settings: mergedSet });
+          }
+        }
+      },
+      (err) => {
+        console.warn('Firestore settings snapshot notice:', err);
+      }
+    );
+  } catch (e) {
+    console.warn('Firestore settings listener error:', e);
   }
 
   // Fast light-weight version check (sub-10ms endpoint check)
@@ -887,7 +1030,7 @@ export function subscribeToFirestore(
   };
 
   pollServerVersion();
-  const intervalId = setInterval(pollServerVersion, 700);
+  const intervalId = setInterval(pollServerVersion, 3000);
 
   const handleFocusOrVisible = () => {
     pollServerVersion();
@@ -931,6 +1074,9 @@ export function subscribeToFirestore(
         supabase.removeChannel(supabaseChannel);
       } catch (e) {}
     }
+    if (unsubFsProducts) unsubFsProducts();
+    if (unsubFsOrders) unsubFsOrders();
+    if (unsubFsSettings) unsubFsSettings();
   };
 }
 
