@@ -923,7 +923,7 @@ export async function fetchServerData(): Promise<{ products: Product[]; orders: 
 
 // Live real-time subscription for instant multi-device syncing with active Firestore listeners & version polling
 export function subscribeToFirestore(
-  onDataUpdate: (data: { products?: Product[]; orders?: Order[]; settings?: StoreSettings }) => void,
+  onDataUpdate: (data: { products?: Product[]; orders?: Order[]; settings?: StoreSettings; newOrders?: Order[] }) => void,
   onError?: (errMessage: string) => void
 ) {
   let lastServerVersion = 0;
@@ -996,11 +996,16 @@ export function subscribeToFirestore(
         });
         if (fsOrds.length > 0) {
           const localOrds = getStoredOrders();
+          const localIds = new Set(localOrds.map((o) => o.id));
+          
+          // Detect brand new incoming orders from other devices
+          const newIncomingOrders = fsOrds.filter((o) => !localIds.has(o.id));
+
           const mergedOrds = mergeOrdersList(localOrds, fsOrds);
           try {
             localStorage.setItem(ORDERS_KEY, JSON.stringify(mergedOrds));
           } catch (e) {}
-          onDataUpdate({ orders: mergedOrds });
+          onDataUpdate({ orders: mergedOrds, newOrders: newIncomingOrders });
         }
       },
       (err) => {

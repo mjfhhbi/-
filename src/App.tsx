@@ -117,10 +117,18 @@ export default function App() {
     syncWithServer();
 
     // Live subscription for instant updates across devices
-    const unsubscribeSync = subscribeToFirestore(({ products, orders, settings }) => {
+    const unsubscribeSync = subscribeToFirestore(({ products, orders, settings, newOrders }) => {
       if (Array.isArray(products)) setProducts((prev) => mergeProductsList(prev, products));
       if (Array.isArray(orders)) setOrders((prev) => mergeOrdersList(prev, orders));
       if (settings) setSettings(settings);
+
+      // Trigger instant Toast notification in Admin/Store view when a new order arrives
+      if (Array.isArray(newOrders) && newOrders.length > 0) {
+        const latest = newOrders[0];
+        const customerName = latest.customer?.fullName || 'مشتری';
+        const code = latest.orderCode || latest.id.slice(-6);
+        showToast(`🔔 سفارش جدید ثبت شد! کد سفارش: ${code} - مشتری: ${customerName}`);
+      }
     });
 
     // Read view parameter or route path from URL
