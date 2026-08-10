@@ -191,16 +191,23 @@ export async function saveStoredProducts(products: Product[]): Promise<boolean> 
   if (supabase) {
     supabasePromise = (async () => {
       try {
-        // Primary guaranteed store in Supabase: JSONB store in store_settings table under id='products_data'
+        let mergedItems = products;
+        try {
+          const existingRes = await supabase.from('store_settings').select('*').eq('id', 'products_data').maybeSingle();
+          const existingItems: Product[] = existingRes?.data?.data?.items && Array.isArray(existingRes.data.data.items)
+            ? existingRes.data.data.items
+            : [];
+          mergedItems = mergeProductsList(existingItems, products);
+        } catch (e) {}
+
         await supabase
           .from('store_settings')
           .upsert({
             id: 'products_data',
-            data: { items: products, updatedAt: new Date().toISOString() },
+            data: { items: mergedItems, updatedAt: new Date().toISOString() },
             updated_at: new Date().toISOString(),
           });
 
-        // Also attempt upsert to products table if columns match
         if (products.length > 0) {
           try {
             await supabase
