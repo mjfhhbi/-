@@ -19,11 +19,16 @@ export const InvoiceModal: React.FC<InvoiceModalProps> = ({ order, settings, onC
     window.print();
   };
 
+  const customer = order.customer || ({} as any);
+  const items = Array.isArray(order.items) ? order.items : [];
+  const orderCode = order.orderCode || order.id || 'کد_نامشخص';
+  const createdDateFormatted = order.createdAt ? new Date(order.createdAt).toLocaleDateString('fa-IR') : 'نامشخص';
+
   const handleCopyInvoiceDetails = () => {
-    const itemsText = order.items
-      .map((i) => `• ${i.product.title} (${i.quantity} عدد) - ${formatToman(i.product.price * i.quantity)}`)
+    const itemsText = items
+      .map((i) => `• ${i.product?.title || 'عینک'} (${i.quantity || 1} عدد) - ${formatToman((i.product?.price || 0) * (i.quantity || 1))}`)
       .join('\n');
-    const text = `🧾 فاکتور دیجیتال رسمی ${settings?.storeName || 'استوک جهانی'}\nشماره فاکتور: ${order.orderCode}\nتاریخ: ${new Date(order.createdAt).toLocaleDateString('fa-IR')}\nخریدار: ${order.customer.fullName} (${order.customer.phone})\nآدرس: ${order.customer.province} - ${order.customer.city} - ${order.customer.address}\nکدپستی: ${order.customer.postalCode}\n\nمحصولات:\n${itemsText}\n\nمبلغ کل: ${formatToman(order.finalAmount)}\nوضعیت: ${order.status === 'confirmed' ? 'تایید شده' : order.status === 'shipping' ? 'ارسال شده با پست' : 'در حال بررسی'}`;
+    const text = `🧾 فاکتور دیجیتال رسمی ${settings?.storeName || 'استوک جهانی'}\nشماره فاکتور: ${orderCode}\nتاریخ: ${createdDateFormatted}\nخریدار: ${customer.fullName || 'نامشخص'} (${customer.phone || 'ثبت نشده'})\nآدرس: ${customer.province || ''} - ${customer.city || ''} - ${customer.address || ''}\nکدپستی: ${customer.postalCode || ''}\n\nمحصولات:\n${itemsText}\n\nمبلغ کل: ${formatToman(Number(order.finalAmount || order.totalAmount) || 0)}\nوضعیت: ${order.status === 'confirmed' ? 'تایید شده' : order.status === 'shipping' ? 'ارسال شده با پست' : 'در حال بررسی'}`;
     
     navigator.clipboard.writeText(text);
     setCopiedText(true);
@@ -107,11 +112,11 @@ export const InvoiceModal: React.FC<InvoiceModalProps> = ({ order, settings, onC
               <div className="text-left bg-zinc-100 p-3 rounded-xl border border-zinc-200 text-xs space-y-1 w-full sm:w-auto">
                 <div className="flex items-center justify-between gap-4">
                   <span className="text-zinc-500">شماره فاکتور:</span>
-                  <span className="font-bold text-zinc-900 font-mono dir-ltr">{order.orderCode}</span>
+                  <span className="font-bold text-zinc-900 font-mono dir-ltr">{orderCode}</span>
                 </div>
                 <div className="flex items-center justify-between gap-4">
                   <span className="text-zinc-500">تاریخ ثبت:</span>
-                  <span className="font-medium text-zinc-800">{new Date(order.createdAt).toLocaleDateString('fa-IR')}</span>
+                  <span className="font-medium text-zinc-800">{createdDateFormatted}</span>
                 </div>
                 <div className="flex items-center justify-between gap-4">
                   <span className="text-zinc-500">وضعیت:</span>
@@ -124,16 +129,16 @@ export const InvoiceModal: React.FC<InvoiceModalProps> = ({ order, settings, onC
             <div className="bg-zinc-50 p-3.5 rounded-xl border border-zinc-200 text-xs grid grid-cols-1 sm:grid-cols-2 gap-2">
               <div>
                 <span className="text-zinc-500 block text-[11px]">خریدار / تحویل‌گیرنده:</span>
-                <span className="font-bold text-zinc-900 text-sm block mt-0.5">{order.customer.fullName}</span>
-                <span className="text-zinc-600 font-mono dir-ltr text-right block mt-0.5">{order.customer.phone}</span>
+                <span className="font-bold text-zinc-900 text-sm block mt-0.5">{customer.fullName || 'نامشخص'}</span>
+                <span className="text-zinc-600 font-mono dir-ltr text-right block mt-0.5">{customer.phone || 'ثبت نشده'}</span>
               </div>
               <div>
                 <span className="text-zinc-500 block text-[11px]">آدرس پستی و کد پستی:</span>
                 <span className="font-medium text-zinc-800 block mt-0.5">
-                  {order.customer.province}، {order.customer.city}، {order.customer.address}
+                  {customer.province || ''}، {customer.city || ''}، {customer.address || ''}
                 </span>
                 <span className="text-zinc-600 font-mono block mt-0.5">
-                  کد پستی ۱۰ رقمی: {order.customer.postalCode}
+                  کد پستی ۱۰ رقمی: {customer.postalCode || 'وارد نشده'}
                 </span>
               </div>
             </div>
@@ -151,18 +156,25 @@ export const InvoiceModal: React.FC<InvoiceModalProps> = ({ order, settings, onC
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-zinc-200">
-                  {order.items.map((item, idx) => (
-                    <tr key={idx} className="hover:bg-zinc-50">
-                      <td className="py-2.5 px-3 font-mono text-zinc-500">{idx + 1}</td>
-                      <td className="py-2.5 px-3">
-                        <span className="font-bold text-zinc-900 block">{item.product.title}</span>
-                        {item.product.code && <span className="text-[10px] text-zinc-500 block">کد کالا: {item.product.code}</span>}
-                      </td>
-                      <td className="py-2.5 px-3 text-center font-bold font-mono">{item.quantity}</td>
-                      <td className="py-2.5 px-3 text-left font-mono">{formatToman(item.product.price)}</td>
-                      <td className="py-2.5 px-3 text-left font-bold font-mono">{formatToman(item.product.price * item.quantity)}</td>
-                    </tr>
-                  ))}
+                  {items.map((item, idx) => {
+                    if (!item) return null;
+                    const pTitle = item.product?.title || 'عینک';
+                    const pCode = item.product?.code;
+                    const pPrice = item.product?.price || 0;
+                    const qty = item.quantity || 1;
+                    return (
+                      <tr key={idx} className="hover:bg-zinc-50">
+                        <td className="py-2.5 px-3 font-mono text-zinc-500">{idx + 1}</td>
+                        <td className="py-2.5 px-3">
+                          <span className="font-bold text-zinc-900 block">{pTitle}</span>
+                          {pCode && <span className="text-[10px] text-zinc-500 block">کد کالا: {pCode}</span>}
+                        </td>
+                        <td className="py-2.5 px-3 text-center font-bold font-mono">{qty}</td>
+                        <td className="py-2.5 px-3 text-left font-mono">{formatToman(pPrice)}</td>
+                        <td className="py-2.5 px-3 text-left font-bold font-mono">{formatToman(pPrice * qty)}</td>
+                      </tr>
+                    );
+                  })}
                 </tbody>
               </table>
             </div>

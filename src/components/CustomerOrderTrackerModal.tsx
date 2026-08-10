@@ -101,10 +101,11 @@ export const CustomerOrderTrackerModal: React.FC<CustomerOrderTrackerModalProps>
   // Filter orders matching search input or active phone
   const matchedOrders = activePhone
     ? orders.filter((o) => {
+        if (!o) return false;
         const query = normalizeDigits(activePhone).toLowerCase();
-        const phoneNorm = normalizeDigits(o.customer.phone || '').toLowerCase();
-        const codeNorm = o.orderCode.toLowerCase();
-        const idNorm = o.id.toLowerCase();
+        const phoneNorm = normalizeDigits(o.customer?.phone || '').toLowerCase();
+        const codeNorm = (o.orderCode || '').toLowerCase();
+        const idNorm = (o.id || '').toLowerCase();
         return (
           phoneNorm.includes(query) ||
           codeNorm.includes(query) ||
@@ -161,7 +162,7 @@ export const CustomerOrderTrackerModal: React.FC<CustomerOrderTrackerModalProps>
     }
   };
 
-  const customerName = matchedOrders.length > 0 ? matchedOrders[0].customer.fullName : null;
+  const customerName = matchedOrders.length > 0 ? (matchedOrders[0].customer?.fullName || 'خریدار') : null;
 
   return (
     <AnimatePresence>
@@ -566,18 +567,18 @@ export const CustomerOrderTrackerModal: React.FC<CustomerOrderTrackerModalProps>
                           <div className="bg-zinc-900/60 p-2.5 rounded-xl border border-zinc-800/80 space-y-1 text-[11px] text-zinc-300">
                             <div>
                               <span className="text-zinc-500">تحویل گیرنده: </span>
-                              <span className="font-bold text-white">{ord.customer.fullName}</span>
+                              <span className="font-bold text-white">{ord.customer?.fullName || 'نامشخص'}</span>
                               <span className="text-zinc-500 mr-3"> | تلفن: </span>
-                              <span className="font-mono text-amber-400 dir-ltr inline-block">{ord.customer.phone}</span>
+                              <span className="font-mono text-amber-400 dir-ltr inline-block">{ord.customer?.phone || 'ثبت نشده'}</span>
                             </div>
                             <div>
                               <span className="text-zinc-500">آدرس پستی: </span>
-                              <span>{ord.customer.province}، {ord.customer.city}، {ord.customer.address}</span>
+                              <span>{ord.customer?.province || ''}، {ord.customer?.city || ''}، {ord.customer?.address || ''}</span>
                             </div>
                             <div>
                               <span className="text-zinc-500">کد پستی ۱۰ رقمی: </span>
-                              <span className="font-mono text-amber-400 dir-ltr inline-block">{ord.customer.postalCode || 'وارد نشده'}</span>
-                              {ord.customer.notes && (
+                              <span className="font-mono text-amber-400 dir-ltr inline-block">{ord.customer?.postalCode || 'وارد نشده'}</span>
+                              {ord.customer?.notes && (
                                 <>
                                   <span className="text-zinc-500 mr-3"> | یادداشت: </span>
                                   <span className="text-zinc-400">{ord.customer.notes}</span>

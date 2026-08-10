@@ -109,22 +109,25 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
   const topSoldProductsData = React.useMemo(() => {
     const productStats: { [id: string]: { id: string; title: string; code: string; frameType: string; soldCount: number; totalRevenue: number } } = {};
 
-    orders.forEach((order) => {
-      if (order.status === 'cancelled') return;
-      order.items.forEach((item) => {
+    (orders || []).forEach((order) => {
+      if (!order || order.status === 'cancelled') return;
+      const items = Array.isArray(order.items) ? order.items : [];
+      items.forEach((item) => {
+        if (!item || !item.product || !item.product.id) return;
         const pId = item.product.id;
+        const rawTitle = item.product.title || 'عینک';
         if (!productStats[pId]) {
           productStats[pId] = {
             id: pId,
-            title: item.product.title.length > 20 ? item.product.title.slice(0, 20) + '...' : item.product.title,
+            title: rawTitle.length > 20 ? rawTitle.slice(0, 20) + '...' : rawTitle,
             code: item.product.code || 'STK',
             frameType: item.product.frameType || 'سایر',
             soldCount: 0,
             totalRevenue: 0,
           };
         }
-        productStats[pId].soldCount += item.quantity;
-        productStats[pId].totalRevenue += item.product.price * item.quantity;
+        productStats[pId].soldCount += Number(item.quantity) || 1;
+        productStats[pId].totalRevenue += (Number(item.product.price) || 0) * (Number(item.quantity) || 1);
       });
     });
 
@@ -136,11 +139,13 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
   // Sales by Frame Type for Recharts Pie Chart
   const frameTypeDistributionData = React.useMemo(() => {
     const typeMap: { [key: string]: number } = {};
-    orders.forEach((order) => {
-      if (order.status === 'cancelled') return;
-      order.items.forEach((item) => {
+    (orders || []).forEach((order) => {
+      if (!order || order.status === 'cancelled') return;
+      const items = Array.isArray(order.items) ? order.items : [];
+      items.forEach((item) => {
+        if (!item || !item.product) return;
         const type = item.product.frameType || 'سایر فریم‌ها';
-        typeMap[type] = (typeMap[type] || 0) + item.quantity;
+        typeMap[type] = (typeMap[type] || 0) + (Number(item.quantity) || 1);
       });
     });
 
@@ -161,11 +166,13 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
       'مهر', 'آبان', 'آذر', 'دی', 'بهمن', 'اسفند'
     ];
 
-    orders.forEach((order) => {
-      if (order.status === 'cancelled') return;
-      const d = new Date(order.createdAt);
+    (orders || []).forEach((order) => {
+      if (!order || order.status === 'cancelled') return;
+      const createdAt = order.createdAt || new Date().toISOString();
+      const d = new Date(createdAt);
+      if (isNaN(d.getTime())) return;
+
       const yearMonth = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
-      
       const monthIndex = (d.getMonth() + 3) % 12; // Persian month approximation
       const label = `${persianMonths[monthIndex]} ${d.getFullYear()}`;
 
@@ -176,7 +183,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
           count: 0,
         };
       }
-      monthlyMap[yearMonth].totalRevenue += order.finalAmount || order.totalAmount;
+      monthlyMap[yearMonth].totalRevenue += Number(order.finalAmount || order.totalAmount) || 0;
       monthlyMap[yearMonth].count += 1;
     });
 
@@ -717,11 +724,10 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                         onClick={() => {
                           if (window.confirm('آیا از حذف این عینک مطمئن هستید؟')) {
                             onDeleteProduct(prod.id);
-                            onShowToast('عینک با موفقیت حذف شد');
                           }
                         }}
-                        className="bg-zinc-800 hover:bg-rose-900/50 text-rose-400 p-1.5 rounded-lg transition-colors"
-                        title="حذف"
+                        className="bg-zinc-800 hover:bg-zinc-700 text-rose-400 p-1.5 rounded-lg transition-colors"
+                        title="حذف عینک"
                       >
                         <Trash2 className="w-3.5 h-3.5" />
                       </button>
@@ -734,243 +740,262 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
         </div>
       )}
 
-      {/* TAB 2: ORDERS MANAGEMENT */}
+      {/* TAB: ORDERS */}
       {activeTab === 'orders' && (
         <div className="space-y-4">
+          <div className="flex flex-col sm:flex-row items-center justify-between gap-3 bg-zinc-900/60 p-3.5 rounded-2xl border border-zinc-800">
+            <h3 className="text-sm font-bold text-white flex items-center gap-2">
+              <ShoppingBag className="w-4 h-4 text-amber-400" />
+              <span>لیست سفارشات ثبت شده ({orders.length})</span>
+            </h3>
+          </div>
+
           {orders.length === 0 ? (
-            <div className="bg-zinc-900/40 border border-zinc-800 rounded-2xl p-10 text-center space-y-3">
-              <ShoppingBag className="w-12 h-12 text-zinc-700 mx-auto" />
-              <h3 className="text-sm font-bold text-zinc-300">هنوز سفارشی ثبت نشده است</h3>
-              <p className="text-xs text-zinc-500">
-                به محض ثبت سفارش توسط مشتریان، اطلاعات خریدار و اقلام انتخابی در این بخش نمایش داده می‌شود.
-              </p>
+            <div className="bg-zinc-900/40 border-2 border-dashed border-zinc-800 rounded-2xl p-10 text-center space-y-3">
+              <ShoppingBag className="w-10 h-10 text-zinc-600 mx-auto" />
+              <p className="text-sm font-bold text-zinc-300">هنوز سفارشی ثبت نشده است</p>
             </div>
           ) : (
             <div className="space-y-3">
-              {orders.map((ord) => (
-                <div
-                  key={ord.id}
-                  className="bg-zinc-900 border border-zinc-800 p-4 rounded-2xl space-y-3 text-xs"
-                >
-                  <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2 border-b border-zinc-800 pb-3">
-                    <div className="flex items-center gap-3">
-                      <span className="font-mono font-extrabold text-amber-400 text-sm bg-amber-500/10 px-2.5 py-1 rounded-lg border border-amber-500/20">
-                        {ord.orderCode}
-                      </span>
-                      <span className="text-zinc-400">
-                        ثبت: {new Date(ord.createdAt).toLocaleDateString('fa-IR')}
-                      </span>
-                    </div>
+              {(orders || []).map((ord) => {
+                if (!ord) return null;
+                const cust = ord.customer || ({} as any);
+                const itemsList = Array.isArray(ord.items) ? ord.items : [];
+                const orderCodeStr = ord.orderCode || ord.id || 'کد_نامشخص';
+                const createdDateStr = ord.createdAt ? new Date(ord.createdAt).toLocaleDateString('fa-IR') : 'نامشخص';
+                const custName = cust.fullName || 'مشتری (بی‌نام)';
+                const custPhone = cust.phone || 'ثبت نشده';
+                const custAddr = `${cust.province || ''} ${cust.city || ''} ${cust.address || ''}`.trim() || 'ثبت نشده';
 
-                    <div className="flex items-center gap-2">
-                      <span className="text-zinc-400">وضعیت سفارش:</span>
-                      <select
-                        value={ord.status}
-                        onChange={(e) => {
-                          onUpdateOrderStatus(ord.id, e.target.value as OrderStatus);
-                          onShowToast('وضعیت سفارش بروزرسانی شد');
-                        }}
-                        className="bg-zinc-950 border border-zinc-800 text-amber-400 font-bold px-3 py-1 rounded-xl text-xs focus:outline-none"
-                      >
-                        <option value="pending">در انتظار تایید</option>
-                        <option value="confirmed">تایید شده</option>
-                        <option value="shipping">در حال ارسال (پست)</option>
-                        <option value="delivered">تحویل داده شده</option>
-                        <option value="cancelled">لغو شده</option>
-                      </select>
-                    </div>
-                  </div>
+                return (
+                  <div
+                    key={ord.id || Math.random()}
+                    className="bg-zinc-900 border border-zinc-800 p-4 rounded-2xl space-y-3 text-xs"
+                  >
+                    <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2 border-b border-zinc-800 pb-3">
+                      <div className="flex items-center gap-3">
+                        <span className="font-mono font-extrabold text-amber-400 text-sm bg-amber-500/10 px-2.5 py-1 rounded-lg border border-amber-500/20">
+                          {orderCodeStr}
+                        </span>
+                        <span className="text-zinc-400">
+                          ثبت: {createdDateStr}
+                        </span>
+                      </div>
 
-                  {/* Customer Info Grid */}
-                  <div className="grid grid-cols-1 md:grid-cols-3 gap-3 bg-zinc-950/70 p-3 rounded-xl border border-zinc-800/60">
-                    <div>
-                      <span className="text-zinc-500 block">خریدار:</span>
-                      <span className="font-bold text-white">{ord.customer.fullName}</span>
-                    </div>
-
-                    <div>
-                      <span className="text-zinc-500 block">شماره تماس:</span>
-                      <span className="font-mono text-amber-400 font-bold dir-ltr">{ord.customer.phone}</span>
-                    </div>
-
-                    <div>
-                      <span className="text-zinc-500 block">آدرس ارسال:</span>
-                      <span className="text-zinc-300 leading-snug">{ord.customer.province}، {ord.customer.city}، {ord.customer.address}</span>
-                    </div>
-                  </div>
-
-                  {/* Items Ordered List */}
-                  <div className="space-y-1.5 pt-1">
-                    <span className="text-zinc-400 font-bold">اقلام خریداری شده:</span>
-                    <div className="flex flex-wrap gap-2">
-                      {ord.items.map((it, idx) => (
-                        <span
-                          key={idx}
-                          className="bg-zinc-950 text-zinc-300 px-2.5 py-1 rounded-lg border border-zinc-800 text-[11px] flex items-center gap-1.5"
+                      <div className="flex items-center gap-2">
+                        <span className="text-zinc-400">وضعیت سفارش:</span>
+                        <select
+                          value={ord.status || 'pending'}
+                          onChange={(e) => {
+                            onUpdateOrderStatus(ord.id, e.target.value as OrderStatus);
+                            onShowToast('وضعیت سفارش بروزرسانی شد');
+                          }}
+                          className="bg-zinc-950 border border-zinc-800 text-amber-400 font-bold px-3 py-1 rounded-xl text-xs focus:outline-none"
                         >
-                          <Glasses className="w-3.5 h-3.5 text-amber-400" />
-                          <span>{it.product.title}</span>
-                          <span className="text-amber-400 font-bold">({it.quantity} عدد)</span>
-                        </span>
-                      ))}
-                    </div>
-                  </div>
-
-                  {/* Postal Tracking Code & Admin Note Input Section */}
-                  <div className="bg-zinc-950 p-3.5 rounded-xl border border-amber-500/30 space-y-3">
-                    <div className="flex items-center justify-between">
-                      <span className="text-xs font-bold text-amber-400 flex items-center gap-1.5">
-                        <Truck className="w-4 h-4" />
-                        <span>ثبت و ویرایش کد رهگیری پستی و پیام برای خریدار:</span>
-                      </span>
-                      {ord.postalTrackingCode && (
-                        <span className="text-[10px] text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded-md font-mono dir-ltr font-bold">
-                          کد فعلی: {ord.postalTrackingCode}
-                        </span>
-                      )}
+                          <option value="pending">در انتظار تایید</option>
+                          <option value="confirmed">تایید شده</option>
+                          <option value="shipping">در حال ارسال (پست)</option>
+                          <option value="delivered">تحویل داده شده</option>
+                          <option value="cancelled">لغو شده</option>
+                        </select>
+                      </div>
                     </div>
 
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    {/* Customer Info Grid */}
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-3 bg-zinc-950/70 p-3 rounded-xl border border-zinc-800/60">
                       <div>
-                        <label className="block text-[11px] text-zinc-400 mb-1">کد ۲۴ رقمی رهگیری پست پیشتاز:</label>
-                        <input
-                          type="text"
-                          placeholder="مثلاً: 241234567890123456789012"
-                          value={trackingCodesMap[ord.id] ?? ord.postalTrackingCode ?? ''}
-                          onChange={(e) =>
-                            setTrackingCodesMap({ ...trackingCodesMap, [ord.id]: e.target.value })
-                          }
-                          className="w-full bg-zinc-900 border border-zinc-800 rounded-xl px-3 py-1.5 text-xs text-amber-300 font-mono tracking-wider text-right dir-ltr focus:outline-none focus:border-amber-500"
-                        />
+                        <span className="text-zinc-500 block">خریدار:</span>
+                        <span className="font-bold text-white">{custName}</span>
                       </div>
 
                       <div>
-                        <label className="block text-[11px] text-zinc-400 mb-1">توضیحات اختصاصی برای خریدار (اختیاری):</label>
-                        <input
-                          type="text"
-                          placeholder="مثلاً: مرسوله تحویل پست شد"
-                          value={adminNotesMap[ord.id] ?? ord.adminNote ?? ''}
-                          onChange={(e) =>
-                            setAdminNotesMap({ ...adminNotesMap, [ord.id]: e.target.value })
-                          }
-                          className="w-full bg-zinc-900 border border-zinc-800 rounded-xl px-3 py-1.5 text-xs text-zinc-200 focus:outline-none focus:border-amber-500"
-                        />
+                        <span className="text-zinc-500 block">شماره تماس:</span>
+                        <span className="font-mono text-amber-400 font-bold dir-ltr">{custPhone}</span>
+                      </div>
+
+                      <div>
+                        <span className="text-zinc-500 block">آدرس ارسال:</span>
+                        <span className="text-zinc-300 leading-snug">{custAddr}</span>
                       </div>
                     </div>
 
-                    <div className="flex items-center justify-end gap-2 pt-1">
-                      <button
-                        type="button"
-                        onClick={() => {
-                          const code = trackingCodesMap[ord.id] ?? ord.postalTrackingCode ?? '';
-                          const note = adminNotesMap[ord.id] ?? ord.adminNote ?? '';
-                          if (!code) {
-                            onShowToast('لطفاً کد ۲۴ رقمی پستی را وارد کنید');
-                            return;
-                          }
-                          onUpdateOrderStatus(ord.id, 'shipping', code, note);
-                          onShowToast('کد رهگیری پستی با موفقیت ثبت شد و وضعیت به "ارسال شده" تغییر کرد');
-                        }}
-                        className="bg-amber-500 hover:bg-amber-400 text-zinc-950 font-black px-4 py-1.5 rounded-xl text-xs flex items-center gap-1.5 shadow-md transition-colors"
-                      >
-                        <Truck className="w-3.5 h-3.5" />
-                        <span>ثبت کد پستی و تغییر وضعیت به ارسال شده</span>
-                      </button>
-                    </div>
-                  </div>
-
-                  {/* Payment Info & Receipt Preview */}
-                  <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 pt-2 border-t border-zinc-800">
-                    <div className="flex items-center gap-3 flex-wrap">
-                      <div className="text-zinc-400 text-xs">
-                        <span>روش پرداخت: </span>
-                        <span className="text-amber-400 font-bold">
-                          {ord.paymentMethod === 'card_to_card' ? 'کارت به کارت' : ord.paymentMethod === 'online_gateway' ? 'درگاه آنلاین (زرین‌پال)' : 'پرداخت هنگام تحویل'}
-                        </span>
-                      </div>
-
-                      {ord.paymentMethod === 'online_gateway' ? (
-                        <div className="flex items-center gap-1.5 bg-emerald-500/10 border border-emerald-500/30 px-2.5 py-1 rounded-xl text-emerald-400 font-bold text-[11px]">
-                          <ShieldCheck className="w-3.5 h-3.5 text-emerald-400" />
-                          <span>پرداخت آنلاین موفق شاپرک</span>
-                          {ord.paymentRefId && (
-                            <span className="font-mono text-[10px] text-emerald-300 bg-emerald-950/80 px-1.5 py-0.5 rounded dir-ltr">
-                              کد پیگیری: {ord.paymentRefId}
+                    {/* Items Ordered List */}
+                    <div className="space-y-1.5 pt-1">
+                      <span className="text-zinc-400 font-bold">اقلام خریداری شده:</span>
+                      <div className="flex flex-wrap gap-2">
+                        {itemsList.map((it, idx) => {
+                          if (!it) return null;
+                          const pTitle = it.product?.title || 'عینک';
+                          return (
+                            <span
+                              key={idx}
+                              className="bg-zinc-950 text-zinc-300 px-2.5 py-1 rounded-lg border border-zinc-800 text-[11px] flex items-center gap-1.5"
+                            >
+                              <Glasses className="w-3.5 h-3.5 text-amber-400" />
+                              <span>{pTitle}</span>
+                              <span className="text-amber-400 font-bold">({it.quantity || 1} عدد)</span>
                             </span>
-                          )}
-                        </div>
-                      ) : ord.paymentReceipt ? (
-                        <div className="flex items-center gap-2 bg-amber-500/10 border border-amber-500/30 px-2.5 py-1 rounded-xl">
-                          <img
-                            src={ord.paymentReceipt}
-                            alt="فیش واریزی"
-                            className="w-7 h-7 rounded-lg object-cover cursor-pointer border border-zinc-700"
-                            onClick={() => setViewingReceiptUrl(ord.paymentReceipt || null)}
+                          );
+                        })}
+                      </div>
+                    </div>
+
+                    {/* Postal Tracking Code & Admin Note Input Section */}
+                    <div className="bg-zinc-950 p-3.5 rounded-xl border border-amber-500/30 space-y-3">
+                      <div className="flex items-center justify-between">
+                        <span className="text-xs font-bold text-amber-400 flex items-center gap-1.5">
+                          <Truck className="w-4 h-4" />
+                          <span>ثبت و ویرایش کد رهگیری پستی و پیام برای خریدار:</span>
+                        </span>
+                        {ord.postalTrackingCode && (
+                          <span className="text-[10px] text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded-md font-mono dir-ltr font-bold">
+                            کد فعلی: {ord.postalTrackingCode}
+                          </span>
+                        )}
+                      </div>
+
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                        <div>
+                          <label className="block text-[11px] text-zinc-400 mb-1">کد ۲۴ رقمی رهگیری پست پیشتاز:</label>
+                          <input
+                            type="text"
+                            placeholder="مثلاً: 241234567890123456789012"
+                            value={trackingCodesMap[ord.id] ?? ord.postalTrackingCode ?? ''}
+                            onChange={(e) =>
+                              setTrackingCodesMap({ ...trackingCodesMap, [ord.id]: e.target.value })
+                            }
+                            className="w-full bg-zinc-900 border border-zinc-800 rounded-xl px-3 py-1.5 text-xs text-amber-300 font-mono tracking-wider text-right dir-ltr focus:outline-none focus:border-amber-500"
                           />
+                        </div>
+
+                        <div>
+                          <label className="block text-[11px] text-zinc-400 mb-1">توضیحات اختصاصی برای خریدار (اختیاری):</label>
+                          <input
+                            type="text"
+                            placeholder="مثلاً: مرسوله تحویل پست شد"
+                            value={adminNotesMap[ord.id] ?? ord.adminNote ?? ''}
+                            onChange={(e) =>
+                              setAdminNotesMap({ ...adminNotesMap, [ord.id]: e.target.value })
+                            }
+                            className="w-full bg-zinc-900 border border-zinc-800 rounded-xl px-3 py-1.5 text-xs text-zinc-200 focus:outline-none focus:border-amber-500"
+                          />
+                        </div>
+                      </div>
+
+                      <div className="flex items-center justify-end gap-2 pt-1">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            const code = trackingCodesMap[ord.id] ?? ord.postalTrackingCode ?? '';
+                            const note = adminNotesMap[ord.id] ?? ord.adminNote ?? '';
+                            if (!code) {
+                              onShowToast('لطفاً کد ۲۴ رقمی پستی را وارد کنید');
+                              return;
+                            }
+                            onUpdateOrderStatus(ord.id, 'shipping', code, note);
+                            onShowToast('کد رهگیری پستی با موفقیت ثبت شد و وضعیت به "ارسال شده" تغییر کرد');
+                          }}
+                          className="bg-amber-500 hover:bg-amber-400 text-zinc-950 font-black px-4 py-1.5 rounded-xl text-xs flex items-center gap-1.5 shadow-md transition-colors"
+                        >
+                          <Truck className="w-3.5 h-3.5" />
+                          <span>ثبت کد پستی و تغییر وضعیت به ارسال شده</span>
+                        </button>
+                      </div>
+                    </div>
+
+                    {/* Payment Info & Receipt Preview */}
+                    <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 pt-2 border-t border-zinc-800">
+                      <div className="flex items-center gap-3 flex-wrap">
+                        <div className="text-zinc-400 text-xs">
+                          <span>روش پرداخت: </span>
+                          <span className="text-amber-400 font-bold">
+                            {ord.paymentMethod === 'card_to_card' ? 'کارت به کارت' : ord.paymentMethod === 'online_gateway' ? 'درگاه آنلاین (زرین‌پال)' : 'پرداخت هنگام تحویل'}
+                          </span>
+                        </div>
+
+                        {ord.paymentMethod === 'online_gateway' ? (
+                          <div className="flex items-center gap-1.5 bg-emerald-500/10 border border-emerald-500/30 px-2.5 py-1 rounded-xl text-emerald-400 font-bold text-[11px]">
+                            <ShieldCheck className="w-3.5 h-3.5 text-emerald-400" />
+                            <span>پرداخت آنلاین موفق شاپرک</span>
+                            {ord.paymentRefId && (
+                              <span className="font-mono text-[10px] text-emerald-300 bg-emerald-950/80 px-1.5 py-0.5 rounded dir-ltr">
+                                کد پیگیری: {ord.paymentRefId}
+                              </span>
+                            )}
+                          </div>
+                        ) : ord.paymentReceipt ? (
+                          <div className="flex items-center gap-2 bg-amber-500/10 border border-amber-500/30 px-2.5 py-1 rounded-xl">
+                            <img
+                              src={ord.paymentReceipt}
+                              alt="فیش واریزی"
+                              className="w-7 h-7 rounded-lg object-cover cursor-pointer border border-zinc-700"
+                              onClick={() => setViewingReceiptUrl(ord.paymentReceipt || null)}
+                            />
+                            <button
+                              type="button"
+                              onClick={() => setViewingReceiptUrl(ord.paymentReceipt || null)}
+                              className="text-amber-400 font-bold text-[11px] hover:underline flex items-center gap-1"
+                            >
+                              <Eye className="w-3.5 h-3.5" />
+                              <span>مشاهده فیش واریزی</span>
+                            </button>
+                          </div>
+                        ) : (
+                          <span className="text-rose-400 text-[10px] bg-rose-500/10 px-2 py-0.5 rounded-full border border-rose-500/20">
+                            فیش واریزی ارسال نشده
+                          </span>
+                        )}
+                      </div>
+
+                      <div className="flex items-center gap-2 w-full sm:w-auto justify-between sm:justify-end flex-wrap">
+                        {onOpenInvoice && (
                           <button
                             type="button"
-                            onClick={() => setViewingReceiptUrl(ord.paymentReceipt || null)}
-                            className="text-amber-400 font-bold text-[11px] hover:underline flex items-center gap-1"
+                            onClick={() => onOpenInvoice(ord)}
+                            className="bg-amber-500/10 hover:bg-amber-500/20 text-amber-400 border border-amber-500/30 px-3 py-1.5 rounded-xl text-xs font-bold flex items-center gap-1.5 transition-colors"
                           >
-                            <Eye className="w-3.5 h-3.5" />
-                            <span>مشاهده فیش واریزی</span>
+                            <Printer className="w-3.5 h-3.5" />
+                            <span>صدور فاکتور PDF</span>
                           </button>
+                        )}
+
+                        {ord.status === 'pending' && (
+                          <button
+                            onClick={() => {
+                              onUpdateOrderStatus(ord.id, 'confirmed');
+                              onShowToast('فیش واریزی تایید شد. برای اطلاع مشتری، پیامش رو از طریق تلگرام/تماس پیگیری کنید');
+                            }}
+                            className="bg-emerald-500 hover:bg-emerald-400 text-zinc-950 font-extrabold px-3 py-1.5 rounded-xl text-xs flex items-center gap-1 transition-colors shadow-sm"
+                          >
+                            <CheckCircle2 className="w-3.5 h-3.5" />
+                            <span>تایید واریزی</span>
+                          </button>
+                        )}
+
+                        {onDeleteOrder && (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              if (window.confirm(`آیا از حذف سفارش ${orderCodeStr} مربوط به ${custName} اطمینان دارید؟`)) {
+                                onDeleteOrder(ord.id);
+                              }
+                            }}
+                            className="bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 border border-rose-500/30 px-2.5 py-1.5 rounded-xl text-xs font-bold flex items-center gap-1 transition-colors"
+                            title="حذف کامل این سفارش از لیست"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                            <span>حذف سفارش</span>
+                          </button>
+                        )}
+
+                        <div className="text-sm font-black text-amber-400 mr-2">
+                          مبلغ کل: {formatToman(Number(ord.finalAmount || ord.totalAmount) || 0)}
                         </div>
-                      ) : (
-                        <span className="text-rose-400 text-[10px] bg-rose-500/10 px-2 py-0.5 rounded-full border border-rose-500/20">
-                          فیش آپلود نشده
-                        </span>
-                      )}
-                    </div>
-
-                    <div className="flex items-center gap-2 w-full sm:w-auto justify-between sm:justify-end flex-wrap">
-                      {onOpenInvoice && (
-                        <button
-                          type="button"
-                          onClick={() => onOpenInvoice(ord)}
-                          className="bg-amber-500/10 hover:bg-amber-500/20 text-amber-400 border border-amber-500/30 px-3 py-1.5 rounded-xl text-xs font-bold flex items-center gap-1.5 transition-colors"
-                        >
-                          <Printer className="w-3.5 h-3.5" />
-                          <span>صدور فاکتور PDF</span>
-                        </button>
-                      )}
-
-                      {ord.status === 'pending' && (
-                        <button
-                          onClick={() => {
-                            onUpdateOrderStatus(ord.id, 'confirmed');
-                            onShowToast('فیش واریزی تایید شد. برای اطلاع مشتری، پیامش رو از طریق تلگرام/تماس پیگیری کنید');
-                          }}
-                          className="bg-emerald-500 hover:bg-emerald-400 text-zinc-950 font-extrabold px-3 py-1.5 rounded-xl text-xs flex items-center gap-1 transition-colors shadow-sm"
-                        >
-                          <CheckCircle2 className="w-3.5 h-3.5" />
-                          <span>تایید واریزی</span>
-                        </button>
-                      )}
-
-                      {onDeleteOrder && (
-                        <button
-                          type="button"
-                          onClick={() => {
-                            if (window.confirm(`آیا از حذف سفارش ${ord.orderCode} مربوط به ${ord.customer.fullName} اطمینان دارید؟`)) {
-                              onDeleteOrder(ord.id);
-                            }
-                          }}
-                          className="bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 border border-rose-500/30 px-2.5 py-1.5 rounded-xl text-xs font-bold flex items-center gap-1 transition-colors"
-                          title="حذف کامل این سفارش از لیست"
-                        >
-                          <Trash2 className="w-3.5 h-3.5" />
-                          <span>حذف سفارش</span>
-                        </button>
-                      )}
-
-                      <div className="text-sm font-black text-amber-400 mr-2">
-                        مبلغ کل: {formatToman(ord.finalAmount)}
                       </div>
                     </div>
                   </div>
-                </div>
-              ))}
+                );
+              })}
             </div>
           )}
         </div>
