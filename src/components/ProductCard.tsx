@@ -63,7 +63,7 @@ export const ProductCard: React.FC<ProductCardProps> = ({
       whileTap={{ scale: 0.98 }}
       transition={{ duration: 0.22, ease: [0.16, 1, 0.3, 1], delay: revealDelay }}
       onClick={() => onSelectProduct(product)}
-      className="group relative bg-zinc-900/90 border border-zinc-800/90 hover:border-amber-500/40 rounded-2xl overflow-hidden shadow-lg transition-colors duration-300 flex flex-col cursor-pointer"
+      className="group relative bg-zinc-900/90 border border-zinc-800/90 hover:border-amber-500/50 rounded-2xl overflow-hidden shadow-lg hover:shadow-2xl hover:shadow-amber-500/10 transition-all duration-300 flex flex-col cursor-pointer"
     >
       {/* Top Image Preview Container */}
       <div className="relative aspect-[4/3] w-full bg-zinc-950 overflow-hidden flex items-center justify-center border-b border-zinc-800/60">

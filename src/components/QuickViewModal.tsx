@@ -28,17 +28,15 @@ export const QuickViewModal: React.FC<QuickViewModalProps> = ({
   onAddToCart,
   onOpenFullDetail,
 }) => {
-  if (!product) return null;
-
   const [selectedImgIndex, setSelectedImgIndex] = useState(0);
   const [quantity, setQuantity] = useState(1);
   const [addedSuccess, setAddedSuccess] = useState(false);
 
-  const images = product.images && product.images.length > 0 ? product.images : [];
+  const images = product?.images && product.images.length > 0 ? product.images : [];
   const currentImg = images[selectedImgIndex] || null;
 
   const calculateDiscount = () => {
-    if (product.originalPrice && product.originalPrice > product.price) {
+    if (product && product.originalPrice && product.originalPrice > product.price) {
       const diff = product.originalPrice - product.price;
       return Math.round((diff / product.originalPrice) * 100);
     }
@@ -48,7 +46,7 @@ export const QuickViewModal: React.FC<QuickViewModalProps> = ({
   const discountPercent = calculateDiscount();
 
   const handleAddToCart = () => {
-    if (product.stock <= 0) return;
+    if (!product || product.stock <= 0) return;
     onAddToCart(product, quantity);
     setAddedSuccess(true);
     setTimeout(() => {
@@ -59,14 +57,25 @@ export const QuickViewModal: React.FC<QuickViewModalProps> = ({
 
   return (
     <AnimatePresence>
-      <div className="fixed inset-0 z-[120] overflow-y-auto bg-black/80 backdrop-blur-md flex items-center justify-center p-3 sm:p-6 dir-rtl">
+      {product && (
         <motion.div
-          initial={{ opacity: 0, scale: 0.95, y: 15 }}
-          animate={{ opacity: 1, scale: 1, y: 0 }}
-          exit={{ opacity: 0, scale: 0.95, y: 15 }}
-          transition={{ duration: 0.2 }}
-          className="bg-zinc-900 border border-zinc-800 rounded-3xl w-full max-w-2xl overflow-hidden shadow-2xl relative"
+          key="quickview-backdrop"
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          exit={{ opacity: 0 }}
+          transition={{ duration: 0.18 }}
+          onClick={onClose}
+          className="fixed inset-0 z-[120] overflow-y-auto bg-black/80 backdrop-blur-md flex items-center justify-center p-3 sm:p-6 dir-rtl"
         >
+          <motion.div
+            key="quickview-modal"
+            initial={{ opacity: 0, scale: 0.95, y: 15 }}
+            animate={{ opacity: 1, scale: 1, y: 0 }}
+            exit={{ opacity: 0, scale: 0.95, y: 15 }}
+            transition={{ duration: 0.22, ease: [0.16, 1, 0.3, 1] }}
+            onClick={(e) => e.stopPropagation()}
+            className="bg-zinc-900 border border-zinc-800 rounded-3xl w-full max-w-2xl overflow-hidden shadow-2xl relative"
+          >
           {/* Header Bar */}
           <div className="flex items-center justify-between p-4 px-6 border-b border-zinc-800 bg-zinc-950/60">
             <div className="flex items-center gap-2">
@@ -254,7 +263,8 @@ export const QuickViewModal: React.FC<QuickViewModalProps> = ({
             </div>
           </div>
         </motion.div>
-      </div>
+      </motion.div>
+      )}
     </AnimatePresence>
   );
 };

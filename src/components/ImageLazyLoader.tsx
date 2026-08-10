@@ -43,7 +43,7 @@ export const ImageLazyLoader: React.FC<ImageLazyLoaderProps> = ({
       : 'object-cover';
 
   const zoomClass = zoomOnHover
-    ? 'group-hover:scale-105 transition-transform duration-500 ease-out'
+    ? 'group-hover:scale-110 transition-transform duration-700 ease-out'
     : '';
 
   const handleRetry = (e: React.MouseEvent) => {

@@ -404,6 +404,230 @@ app.post("/api/orders/new", (req, res) => {
   res.json({ success: true, order });
 });
 
+app.post("/api/send-order", async (req, res) => {
+  try {
+    const data = req.body;
+    if (!data) {
+      return res.status(400).json({ error: "Invalid payload" });
+    }
+
+    const currentData = readData();
+    const settings = currentData.settings || {};
+
+    const telegramToken = data.telegramToken || settings.telegramBotToken || process.env.TELEGRAM_BOT_TOKEN;
+    const chatId = data.chatId || settings.telegramChatId || process.env.TELEGRAM_CHAT_ID;
+    const customWebhook = data.webhookUrl || settings.telegramWebhookUrl;
+
+    const orderId = data.orderId || data.id;
+    const orderCode = data.orderCode || orderId;
+
+    let message = `🛒 *سفارش جدید ثبت شد!*\n\n`;
+    message += `🆔 *کد سفارش:* \`${orderCode}\`\n`;
+    message += `👤 *نام:* ${data.customerName || data.customer?.fullName || 'نامشخص'}\n`;
+    message += `📞 *تلفن:* \`${data.customerPhone || data.customer?.phone || 'نامشخص'}\`\n`;
+    message += `📍 *آدرس:* ${data.customerAddress || `${data.customer?.province || ''} - ${data.customer?.city || ''} - ${data.customer?.address || ''}`}\n`;
+    if (data.customer?.postalCode) {
+      message += `📮 *کد پستی:* \`${data.customer.postalCode}\`\n`;
+    }
+    message += `\n📦 *اقلام سفارش:*\n`;
+    const items = data.items || [];
+    items.forEach((i: any) => {
+      const pName = i.name || i.product?.title || 'عینک';
+      const qty = i.quantity || 1;
+      const price = i.price || i.product?.price || 0;
+      const priceStr = typeof price === 'number' ? price.toLocaleString('fa-IR') : price;
+      message += `- ${pName} (تعداد: ${qty}) - ${priceStr} تومان\n`;
+    });
+    const total = data.totalPrice || data.finalAmount || 0;
+    const totalStr = typeof total === 'number' ? total.toLocaleString('fa-IR') : total;
+    message += `\n💰 *مبلغ کل:* ${totalStr}`;
+
+    const inlineKeyboard = {
+      inline_keyboard: [
+        [
+          { text: '✅ تایید و انتقال به انجام‌شده', callback_data: `approve_${orderId}` },
+          { text: '❌ لغو سفارش', callback_data: `cancel_${orderId}` }
+        ]
+      ]
+    };
+
+    if (customWebhook && typeof customWebhook === 'string' && customWebhook.startsWith('http')) {
+      try {
+        await fetch(customWebhook, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            ...data,
+            orderId,
+            orderCode,
+            message,
+            inlineKeyboard
+          })
+        });
+      } catch (webhookErr) {
+        console.warn('Webhook dispatch error:', webhookErr);
+      }
+    }
+
+    if (telegramToken && chatId) {
+      const receiptUrl = data.receiptUrl || data.paymentReceipt;
+
+      if (receiptUrl && receiptUrl.startsWith('data:image')) {
+        try {
+          const base64Data = receiptUrl.split(',')[1];
+          const buffer = Buffer.from(base64Data, 'base64');
+
+          const formData = new (globalThis.FormData)();
+          formData.append('chat_id', chatId);
+          formData.append('caption', message);
+          formData.append('parse_mode', 'Markdown');
+          formData.append('reply_markup', JSON.stringify(inlineKeyboard));
+
+          const blob = new Blob([buffer], { type: 'image/jpeg' });
+          formData.append('photo', blob, 'receipt.jpg');
+
+          await fetch(`https://api.telegram.org/bot${telegramToken}/sendPhoto`, {
+            method: 'POST',
+            body: formData as any
+          });
+        } catch (imgErr) {
+          console.warn('Telegram base64 photo send failed, falling back to text:', imgErr);
+          await fetch(`https://api.telegram.org/bot${telegramToken}/sendMessage`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              chat_id: chatId,
+              text: message,
+              parse_mode: 'Markdown',
+              reply_markup: inlineKeyboard
+            })
+          });
+        }
+      } else if (receiptUrl && receiptUrl.startsWith('http')) {
+        await fetch(`https://api.telegram.org/bot${telegramToken}/sendPhoto`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            chat_id: chatId,
+            photo: receiptUrl,
+            caption: message,
+            parse_mode: 'Markdown',
+            reply_markup: inlineKeyboard
+          })
+        });
+      } else {
+        await fetch(`https://api.telegram.org/bot${telegramToken}/sendMessage`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            chat_id: chatId,
+            text: message,
+            parse_mode: 'Markdown',
+            reply_markup: inlineKeyboard
+          })
+        });
+      }
+    }
+
+    return res.json({ success: true });
+  } catch (err) {
+    console.error('Send order error:', err);
+    return res.status(500).json({ error: 'Failed to send order' });
+  }
+});
+
+app.post("/api/telegram-webhook", async (req, res) => {
+  try {
+    const update = req.body;
+    if (update && update.callback_query) {
+      const callback = update.callback_query;
+      const callbackData = callback.data || '';
+      const messageId = callback.message?.message_id;
+      const chatId = callback.message?.chat?.id;
+
+      const current = readData();
+      const settings = current.settings || {};
+      const telegramToken = settings.telegramBotToken || process.env.TELEGRAM_BOT_TOKEN;
+
+      let answerText = "عملیات انجام شد.";
+
+      if (callbackData.startsWith('approve_')) {
+        const orderId = callbackData.replace('approve_', '');
+        const order = (current.orders || []).find((o: any) => o.id === orderId);
+        if (order) {
+          order.status = 'confirmed';
+          order.updatedAt = new Date().toISOString();
+          writeData(current);
+          answerText = `سفارش ${order.orderCode} تایید شد.`;
+        } else {
+          answerText = "سفارش یافت نشد.";
+        }
+      } else if (callbackData.startsWith('cancel_')) {
+        const orderId = callbackData.replace('cancel_', '');
+        const order = (current.orders || []).find((o: any) => o.id === orderId);
+        if (order) {
+          order.status = 'cancelled';
+          order.updatedAt = new Date().toISOString();
+          writeData(current);
+          answerText = `سفارش ${order.orderCode} لغو شد.`;
+        } else {
+          answerText = "سفارش یافت نشد.";
+        }
+      }
+
+      if (telegramToken) {
+        try {
+          await fetch(`https://api.telegram.org/bot${telegramToken}/answerCallbackQuery`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              callback_query_id: callback.id,
+              text: answerText,
+              show_alert: true
+            })
+          });
+        } catch (e) {}
+
+        if (chatId && messageId) {
+          try {
+            const originalCaption = callback.message.caption || callback.message.text || '';
+            const statusLabel = callbackData.startsWith('approve_') ? '✅ [تایید شده توسط مدیریت]' : '❌ [لغو شده توسط مدیریت]';
+            const updatedText = `${originalCaption}\n\nوضعیت جدید: ${statusLabel}`;
+
+            if (callback.message.photo) {
+              await fetch(`https://api.telegram.org/bot${telegramToken}/editMessageCaption`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                  chat_id: chatId,
+                  message_id: messageId,
+                  caption: updatedText,
+                  parse_mode: 'Markdown'
+                })
+              });
+            } else {
+              await fetch(`https://api.telegram.org/bot${telegramToken}/editMessageText`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                  chat_id: chatId,
+                  message_id: messageId,
+                  text: updatedText,
+                  parse_mode: 'Markdown'
+                })
+              });
+            }
+          } catch (e) {}
+        }
+      }
+    }
+    return res.json({ ok: true });
+  } catch (err) {
+    console.error('Telegram webhook error:', err);
+    return res.status(500).json({ error: 'Webhook processing failed' });
+  }
+});
+
 app.post("/api/settings", (req, res) => {
   const { settings } = req.body;
   if (!settings || typeof settings !== "object") {

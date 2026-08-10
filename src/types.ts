@@ -88,6 +88,9 @@ export interface StoreSettings {
   coupons?: CouponCode[];
   instagram: string;
   telegram?: string;
+  telegramBotToken?: string;
+  telegramChatId?: string;
+  telegramWebhookUrl?: string;
   phone: string;
   address: string;
   freeShippingThreshold: number;

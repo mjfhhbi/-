@@ -1559,6 +1559,49 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
             </div>
           </div>
 
+          <div className="bg-zinc-950 border border-zinc-800 rounded-2xl p-4 space-y-3">
+            <h4 className="text-xs font-bold text-amber-400 flex items-center gap-1.5">
+              <span>🤖</span> تنظیمات ربات تلگرام (ارسال لحظه‌ای سفارشات و فیش واریزی)
+            </h4>
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+              <div>
+                <label className="block text-xs font-medium text-zinc-300 mb-1">توکن ربات تلگرام (Bot Token)</label>
+                <input
+                  type="text"
+                  value={tempSettings.telegramBotToken || ''}
+                  onChange={(e) => setTempSettings({ ...tempSettings, telegramBotToken: e.target.value })}
+                  placeholder="123456789:ABCdefGhIJKlmNoPQRsTUVwxyZ"
+                  className="w-full bg-zinc-900 border border-zinc-800 rounded-xl px-3.5 py-2 text-xs text-emerald-400 font-mono dir-ltr text-right"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-medium text-zinc-300 mb-1">چت آیدی گروه/کانال تلگرام (Chat ID)</label>
+                <input
+                  type="text"
+                  value={tempSettings.telegramChatId || ''}
+                  onChange={(e) => setTempSettings({ ...tempSettings, telegramChatId: e.target.value })}
+                  placeholder="-1001234567890"
+                  className="w-full bg-zinc-900 border border-zinc-800 rounded-xl px-3.5 py-2 text-xs text-emerald-400 font-mono dir-ltr text-right"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-medium text-zinc-300 mb-1">آدرس وب‌هوک / Cloudflare Worker (اختیاری)</label>
+                <input
+                  type="text"
+                  value={tempSettings.telegramWebhookUrl || ''}
+                  onChange={(e) => setTempSettings({ ...tempSettings, telegramWebhookUrl: e.target.value })}
+                  placeholder="https://my-worker.subdomain.workers.dev"
+                  className="w-full bg-zinc-900 border border-zinc-800 rounded-xl px-3.5 py-2 text-xs text-cyan-400 font-mono dir-ltr text-right"
+                />
+              </div>
+            </div>
+            <p className="text-[11px] text-zinc-400 leading-relaxed">
+              با وارد کردن توکن ربات و چت آیدی، سفارش‌های ثبت شده به همراه تصویر فیش واریزی و دکمه‌های شیشه‌ای «تایید» و «لغو» به گروه تلگرام شما ارسال می‌شوند.
+            </p>
+          </div>
+
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
             <div>
               <label className="block text-xs font-medium text-zinc-300 mb-1">آیدی تلگرام پشتیبانی</label>

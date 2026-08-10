@@ -13,18 +13,17 @@ interface InvoiceModalProps {
 export const InvoiceModal: React.FC<InvoiceModalProps> = ({ order, settings, onClose }) => {
   const [copiedText, setCopiedText] = useState(false);
 
-  if (!order) return null;
-
   const handlePrint = () => {
     window.print();
   };
 
-  const customer = order.customer || ({} as any);
-  const items = Array.isArray(order.items) ? order.items : [];
-  const orderCode = order.orderCode || order.id || 'کد_نامشخص';
-  const createdDateFormatted = order.createdAt ? new Date(order.createdAt).toLocaleDateString('fa-IR') : 'نامشخص';
+  const customer = order?.customer || ({} as any);
+  const items = order && Array.isArray(order.items) ? order.items : [];
+  const orderCode = order?.orderCode || order?.id || 'کد_نامشخص';
+  const createdDateFormatted = order?.createdAt ? new Date(order.createdAt).toLocaleDateString('fa-IR') : 'نامشخص';
 
   const handleCopyInvoiceDetails = () => {
+    if (!order) return;
     const itemsText = items
       .map((i) => `• ${i.product?.title || 'عینک'} (${i.quantity || 1} عدد) - ${formatToman((i.product?.price || 0) * (i.quantity || 1))}`)
       .join('\n');
@@ -54,13 +53,25 @@ export const InvoiceModal: React.FC<InvoiceModalProps> = ({ order, settings, onC
 
   return (
     <AnimatePresence>
-      <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-3 sm:p-5 overflow-y-auto text-right dir-rtl">
+      {order && (
         <motion.div
-          initial={{ opacity: 0, scale: 0.95 }}
-          animate={{ opacity: 1, scale: 1 }}
-          exit={{ opacity: 0, scale: 0.95 }}
-          className="relative bg-zinc-900 border border-zinc-800 rounded-2xl max-w-2xl w-full p-5 sm:p-7 shadow-2xl overflow-hidden my-auto space-y-5"
+          key="invoice-backdrop"
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          exit={{ opacity: 0 }}
+          transition={{ duration: 0.18 }}
+          onClick={onClose}
+          className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-3 sm:p-5 overflow-y-auto text-right dir-rtl"
         >
+          <motion.div
+            key="invoice-modal"
+            initial={{ opacity: 0, scale: 0.95, y: 15 }}
+            animate={{ opacity: 1, scale: 1, y: 0 }}
+            exit={{ opacity: 0, scale: 0.95, y: 15 }}
+            transition={{ duration: 0.22, ease: [0.16, 1, 0.3, 1] }}
+            onClick={(e) => e.stopPropagation()}
+            className="relative bg-zinc-900 border border-zinc-800 rounded-2xl max-w-2xl w-full p-5 sm:p-7 shadow-2xl overflow-hidden my-auto space-y-5"
+          >
           {/* Action Header Bar */}
           <div className="flex items-center justify-between border-b border-zinc-800 pb-4 print:hidden">
             <div className="flex items-center gap-2">
@@ -211,7 +222,8 @@ export const InvoiceModal: React.FC<InvoiceModalProps> = ({ order, settings, onC
             </div>
           </div>
         </motion.div>
-      </div>
+      </motion.div>
+      )}
     </AnimatePresence>
   );
 };

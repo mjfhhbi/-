@@ -33,8 +33,6 @@ export const CompareModal: React.FC<CompareModalProps> = ({
   onClearAll,
   onAddToCart,
 }) => {
-  if (!isOpen) return null;
-
   // Find lowest price among compared items for visual highlight
   const lowestPrice = comparedProducts.length > 0
     ? Math.min(...comparedProducts.map((p) => p.price))
@@ -43,11 +41,22 @@ export const CompareModal: React.FC<CompareModalProps> = ({
   return (
     <AnimatePresence>
       {isOpen && (
-        <div className="fixed inset-0 z-[110] overflow-y-auto bg-black/80 backdrop-blur-md flex items-center justify-center p-3 sm:p-6 animate-fade-in">
+        <motion.div
+          key="compare-backdrop"
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          exit={{ opacity: 0 }}
+          transition={{ duration: 0.18 }}
+          onClick={onClose}
+          className="fixed inset-0 z-[110] overflow-y-auto bg-black/80 backdrop-blur-md flex items-center justify-center p-3 sm:p-6"
+        >
           <motion.div
+            key="compare-modal"
             initial={{ scale: 0.95, opacity: 0, y: 20 }}
             animate={{ scale: 1, opacity: 1, y: 0 }}
             exit={{ scale: 0.95, opacity: 0, y: 20 }}
+            transition={{ duration: 0.22, ease: [0.16, 1, 0.3, 1] }}
+            onClick={(e) => e.stopPropagation()}
             className="bg-zinc-900 border border-zinc-800 rounded-3xl w-full max-w-6xl max-h-[92vh] flex flex-col shadow-2xl overflow-hidden"
           >
             {/* Header */}
@@ -272,7 +281,7 @@ export const CompareModal: React.FC<CompareModalProps> = ({
               )}
             </div>
           </motion.div>
-        </div>
+        </motion.div>
       )}
     </AnimatePresence>
   );

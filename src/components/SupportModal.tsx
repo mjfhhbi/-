@@ -35,8 +35,6 @@ export const SupportModal: React.FC<SupportModalProps> = ({
   const [copiedPhone, setCopiedPhone] = useState(false);
   const [customMessage, setCustomMessage] = useState('');
 
-  if (!isOpen) return null;
-
   const telegramId = settings.telegram || 'stock_jahani';
   const phone = settings.phone || '09120000000';
   const instagram = settings.instagram || 'stock_jahani';
@@ -56,17 +54,25 @@ export const SupportModal: React.FC<SupportModalProps> = ({
 
   return (
     <AnimatePresence>
-      <div 
-        className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-3 sm:p-5 overflow-y-auto text-right dir-rtl"
-        onClick={onClose}
-      >
-        <motion.div
-          initial={{ opacity: 0, scale: 0.95, y: 15 }}
-          animate={{ opacity: 1, scale: 1, y: 0 }}
-          exit={{ opacity: 0, scale: 0.95, y: 15 }}
-          onClick={(e) => e.stopPropagation()}
-          className="relative bg-zinc-900 border border-zinc-800 rounded-2xl max-w-lg w-full p-5 sm:p-6 shadow-2xl overflow-hidden my-auto space-y-5"
+      {isOpen && (
+        <motion.div 
+          key="support-backdrop"
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          exit={{ opacity: 0 }}
+          transition={{ duration: 0.18 }}
+          className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-3 sm:p-5 overflow-y-auto text-right dir-rtl"
+          onClick={onClose}
         >
+          <motion.div
+            key="support-modal"
+            initial={{ opacity: 0, scale: 0.95, y: 15 }}
+            animate={{ opacity: 1, scale: 1, y: 0 }}
+            exit={{ opacity: 0, scale: 0.95, y: 15 }}
+            transition={{ duration: 0.22, ease: [0.16, 1, 0.3, 1] }}
+            onClick={(e) => e.stopPropagation()}
+            className="relative bg-zinc-900 border border-zinc-800 rounded-2xl max-w-lg w-full p-5 sm:p-6 shadow-2xl overflow-hidden my-auto space-y-5"
+          >
           {/* Header */}
           <div className="flex items-center justify-between border-b border-zinc-800 pb-3.5">
             <div className="flex items-center gap-2.5">
@@ -194,7 +200,8 @@ export const SupportModal: React.FC<SupportModalProps> = ({
             </button>
           </div>
         </motion.div>
-      </div>
+      </motion.div>
+      )}
     </AnimatePresence>
   );
 };

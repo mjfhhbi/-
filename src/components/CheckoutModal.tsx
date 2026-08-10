@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { CartItem, Order, OrderCustomer, StoreSettings } from '../types';
-import { formatToman, generateOrderCode, fileToBase64, saveSingleOrder, DEFAULT_COUPONS, sendNtfyOrderAlert } from '../utils/storage';
+import { formatToman, generateOrderCode, fileToBase64, saveSingleOrder, DEFAULT_COUPONS, sendNtfyOrderAlert, checkProductStock, sendTelegramOrderNotification } from '../utils/storage';
 import { 
   X, 
   CheckCircle2, 
@@ -171,14 +171,15 @@ export const CheckoutModal: React.FC<CheckoutModalProps> = ({
       return;
     }
 
-    const outOfStockItem = items.find((item) => item.product.stock < item.quantity);
-    if (outOfStockItem) {
-      setErrorMessage(
-        outOfStockItem.product.stock <= 0
-          ? `متأسفانه عینک "${outOfStockItem.product.title}" همین الآن تمام شد و امکان ثبت سفارش آن وجود ندارد.`
-          : `موجودی عینک "${outOfStockItem.product.title}" کافی نیست (${outOfStockItem.product.stock} عدد موجود است).`
-      );
-      return;
+    // ۱. بررسی موجودی محصولات قبل از ثبت نهایی
+    for (const item of items) {
+      if (!item.product) continue;
+      const productRef = await checkProductStock(item.product.id);
+      if (!productRef || productRef.stock < item.quantity) {
+        setErrorMessage(`متأسفانه محصول "${item.product.title}" تمام شده یا به این تعداد موجود نیست.`);
+        setIsSubmitting(false);
+        return;
+      }
     }
 
     if (
@@ -252,6 +253,7 @@ export const CheckoutModal: React.FC<CheckoutModalProps> = ({
 
       onOrderCreated(newOrder);
       sendNtfyOrderAlert(newOrder);
+      sendTelegramOrderNotification(newOrder, settings);
       setCreatedOrder(newOrder);
       setIsSubmitting(false);
       setStep('success');

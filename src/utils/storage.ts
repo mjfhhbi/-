@@ -569,6 +569,26 @@ export async function saveSingleOrder(order: Order): Promise<boolean> {
     updatedAt: order.updatedAt || new Date().toISOString(),
   };
 
+  // Decrement product stock locally and sync updated products
+  try {
+    const currentProducts = getStoredProducts();
+    let stockChanged = false;
+    const updatedProducts = currentProducts.map((p) => {
+      const itemInOrder = order.items.find((i) => i.product && i.product.id === p.id);
+      if (itemInOrder) {
+        stockChanged = true;
+        const newStock = Math.max(0, p.stock - itemInOrder.quantity);
+        return { ...p, stock: newStock, updatedAt: new Date().toISOString() };
+      }
+      return p;
+    });
+    if (stockChanged) {
+      saveStoredProducts(updatedProducts);
+    }
+  } catch (e) {
+    console.error('Error updating stock after order placement:', e);
+  }
+
   let savedLocal = false;
 
   // 1. Save to local storage instantly (0ms)
@@ -1199,6 +1219,70 @@ export function formatToman(amount: number): string {
   if (isNaN(amount)) return '۰ تومان';
   const formatted = amount.toLocaleString('fa-IR');
   return `${formatted} تومان`;
+}
+
+export async function checkProductStock(productId: string): Promise<Product | null> {
+  try {
+    const res = await fetch('/api/data', { cache: 'no-store' });
+    if (res.ok) {
+      const data = await res.json();
+      if (Array.isArray(data.products)) {
+        const found = data.products.find((p: Product) => p.id === productId);
+        if (found) return found;
+      }
+    }
+  } catch (e) {}
+
+  const localProducts = getStoredProducts();
+  const localFound = localProducts.find((p) => p.id === productId);
+  return localFound || null;
+}
+
+export async function sendTelegramOrderNotification(order: Order, settings?: StoreSettings): Promise<boolean> {
+  try {
+    const payload = {
+      orderId: order.id,
+      orderCode: order.orderCode,
+      customerName: order.customer.fullName,
+      customerPhone: order.customer.phone,
+      customerAddress: `${order.customer.province || ''} - ${order.customer.city || ''} - ${order.customer.address} (کد پستی: ${order.customer.postalCode || 'وارد نشده'})`,
+      customer: order.customer,
+      items: order.items.map((i) => ({
+        id: i.product?.id || '',
+        name: i.product?.title || 'عینک',
+        quantity: i.quantity,
+        price: i.product?.price || 0,
+        product: i.product,
+      })),
+      totalPrice: formatToman(order.finalAmount),
+      receiptUrl: order.paymentReceipt,
+      timestamp: order.createdAt || new Date().toISOString(),
+      telegramToken: settings?.telegramBotToken,
+      chatId: settings?.telegramChatId,
+      webhookUrl: settings?.telegramWebhookUrl,
+    };
+
+    if (settings?.telegramWebhookUrl) {
+      try {
+        await fetch(settings.telegramWebhookUrl, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload),
+        });
+      } catch (e) {}
+    }
+
+    const res = await fetch('/api/send-order', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+
+    return res.ok;
+  } catch (err) {
+    console.error('Telegram order notification error:', err);
+    return false;
+  }
 }
 
 const NTFY_TOPIC_URL = 'https://ntfy.sh/berim-birun-x7k2m';
