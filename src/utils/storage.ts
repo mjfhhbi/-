@@ -1228,6 +1228,8 @@ export function formatToman(amount: number): string {
 
 export async function checkProductStock(productId: string): Promise<Product | null> {
   let apiProduct: Product | null = null;
+  let supabaseProduct: Product | null = null;
+
   try {
     const res = await fetch('/api/data?t=' + Date.now(), { cache: 'no-store' });
     if (res.ok) {
@@ -1239,21 +1241,28 @@ export async function checkProductStock(productId: string): Promise<Product | nu
     }
   } catch (e) {}
 
+  const supabase = getSupabaseClient();
+  if (supabase) {
+    try {
+      const { data } = await supabase.from('products').select('*').eq('id', productId).maybeSingle();
+      if (data && data.data) {
+        supabaseProduct = data.data as Product;
+      }
+    } catch (e) {}
+  }
+
   const localProducts = getStoredProducts();
   const localProduct = localProducts.find((p) => p.id === productId) || null;
 
-  if (apiProduct && localProduct) {
-    const merged = mergeProductsList([localProduct], [apiProduct])[0];
-    if (merged) {
-      const minStock = Math.min(
-        typeof apiProduct.stock === 'number' ? apiProduct.stock : 0,
-        typeof localProduct.stock === 'number' ? localProduct.stock : 0
-      );
-      return { ...merged, stock: minStock };
-    }
-  }
+  const candidates = [apiProduct, supabaseProduct, localProduct].filter(Boolean) as Product[];
+  if (candidates.length === 0) return null;
 
-  return apiProduct || localProduct || null;
+  const baseProduct = mergeProductsList(candidates, [])[0] || candidates[0];
+  const minStock = Math.min(
+    ...candidates.map((c) => (typeof c.stock === 'number' ? c.stock : 0))
+  );
+
+  return { ...baseProduct, stock: minStock };
 }
 
 export async function testTelegramNotification(settings: StoreSettings): Promise<{ success: boolean; message: string }> {

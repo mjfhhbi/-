@@ -166,10 +166,15 @@ export const CheckoutModal: React.FC<CheckoutModalProps> = ({
   const handleSubmitOrder = async (e: React.FormEvent) => {
     e.preventDefault();
 
+    if (isSubmitting) return;
+
     if (items.length === 0) {
       setErrorMessage('سبد خرید شما خالی است یا عینک‌های انتخابی شما تمام شده‌اند.');
       return;
     }
+
+    setIsSubmitting(true);
+    setErrorMessage('');
 
     // ۱. بررسی موجودی محصولات قبل از ثبت نهایی
     for (const item of items) {
@@ -189,16 +194,19 @@ export const CheckoutModal: React.FC<CheckoutModalProps> = ({
       !customer.postalCode.trim()
     ) {
       setErrorMessage('لطفاً نام، شماره تماس، آدرس دقیق و کد پستی ۱۰ رقمی را وارد کنید.');
+      setIsSubmitting(false);
       return;
     }
 
     if (customer.postalCode.trim().length < 5) {
       setErrorMessage('کد پستی وارد شده معتبر نیست. لطفاً کد پستی ۱۰ رقمی را وارد نمایید.');
+      setIsSubmitting(false);
       return;
     }
 
     if (paymentMethod === 'card_to_card' && !receiptImage) {
       setErrorMessage('لطفاً ابتدا تصویر فیش یا رسید واریزی کارت به کارت را آپلود کنید تا ثبت سفارش مجاز شود.');
+      setIsSubmitting(false);
       return;
     }
 
