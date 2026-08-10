@@ -214,10 +214,13 @@ export const CheckoutModal: React.FC<CheckoutModalProps> = ({
     const isOnline = paymentMethod === 'online_gateway';
     const bankRefId = isOnline ? `ZP-${Math.floor(10000000 + Math.random() * 90000000)}` : undefined;
 
+    const nowIso = new Date().toISOString();
+
     const newOrder: Order = {
       id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
       orderCode: generateOrderCode(),
-      createdAt: new Date().toISOString(),
+      createdAt: nowIso,
+      updatedAt: nowIso,
       items: [...items],
       totalAmount: subtotal,
       shippingFee,

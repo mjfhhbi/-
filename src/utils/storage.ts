@@ -481,22 +481,30 @@ export async function saveStoredOrders(orders: Order[]): Promise<boolean> {
   // 1. Synchronous immediate local storage update (0ms delay for user UI)
   try {
     localStorage.setItem(ORDERS_KEY, JSON.stringify(orders));
+    notifyTabsOfChange();
   } catch (err) {
     console.error('Error saving orders locally:', err);
   }
 
+  const cleanOrders = orders.map(cleanForFirestore);
+
   // 2. Immediate Supabase sync (Unblocked in Iran, no VPN needed)
   const supabase = getSupabaseClient();
-  if (supabase && orders.length > 0) {
+  if (supabase && cleanOrders.length > 0) {
     (async () => {
       try {
-        const { error } = await supabase
-          .from('orders')
-          .upsert(orders.map((o) => ({ id: o.id, data: o, updated_at: new Date().toISOString() })));
-        if (error) {
-          console.warn('Supabase order save warning:', error);
-          enqueuePendingOrders(orders);
-        }
+        await Promise.allSettled([
+          supabase
+            .from('orders')
+            .upsert(cleanOrders.map((o) => ({ id: o.id, data: o, updated_at: new Date().toISOString() }))),
+          supabase
+            .from('store_settings')
+            .upsert({
+              id: 'orders_data',
+              data: { items: cleanOrders, updatedAt: new Date().toISOString() },
+              updated_at: new Date().toISOString(),
+            })
+        ]);
       } catch (err) {
         console.warn('Supabase order save network error:', err);
         enqueuePendingOrders(orders);
@@ -508,7 +516,7 @@ export async function saveStoredOrders(orders: Order[]): Promise<boolean> {
   fetch('/api/orders', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ orders }),
+    body: JSON.stringify({ orders: cleanOrders }),
   }).catch(() => {
     enqueuePendingOrders(orders);
   });
@@ -526,16 +534,15 @@ export async function saveStoredOrders(orders: Order[]): Promise<boolean> {
         }
       });
 
-      orders.forEach((o) => {
-        const cleanO = cleanForFirestore(o);
-        batch.set(doc(db, 'orders', o.id), cleanO);
+      cleanOrders.forEach((o) => {
+        batch.set(doc(db, 'orders', o.id), o);
       });
 
       await batch.commit();
     } catch (err) {
-      for (const o of orders) {
+      for (const o of cleanOrders) {
         try {
-          await setDoc(doc(db, 'orders', o.id), cleanForFirestore(o));
+          await setDoc(doc(db, 'orders', o.id), o);
         } catch (e) {}
       }
     }
@@ -545,20 +552,28 @@ export async function saveStoredOrders(orders: Order[]): Promise<boolean> {
 }
 
 export async function saveSingleOrder(order: Order): Promise<boolean> {
+  if (order && order.id) {
+    removeDeletedOrderId(order.id);
+  }
+
+  const cleanOrder: Order = {
+    ...cleanForFirestore(order),
+    createdAt: order.createdAt || new Date().toISOString(),
+    updatedAt: order.updatedAt || new Date().toISOString(),
+  };
+
   let savedLocal = false;
 
   // 1. Save to local storage instantly (0ms)
   try {
     const existing = getStoredOrders();
-    const updated = mergeOrdersList([order], existing);
+    const updated = mergeOrdersList([cleanOrder], existing);
     localStorage.setItem(ORDERS_KEY, JSON.stringify(updated));
     notifyTabsOfChange();
     savedLocal = true;
   } catch (err) {
     console.error('Error saving order to localStorage:', err);
   }
-
-  const cleanOrder = cleanForFirestore(order);
 
   // 2. Fire Server API, Firestore, and Supabase ALL IN PARALLEL!
   const apiPromise = fetch('/api/orders/new', {
@@ -569,19 +584,35 @@ export async function saveSingleOrder(order: Order): Promise<boolean> {
     .then((res) => res.ok)
     .catch(() => false);
 
-  const firestorePromise = setDoc(doc(db, 'orders', order.id), cleanOrder)
+  const firestorePromise = setDoc(doc(db, 'orders', cleanOrder.id), cleanOrder)
     .then(() => true)
     .catch(() => false);
 
   const supabase = getSupabaseClient();
   const supabasePromise = supabase
-    ? Promise.resolve(
-        supabase
-          .from('orders')
-          .upsert([{ id: order.id, data: cleanOrder, updated_at: new Date().toISOString() }])
-      )
-        .then(({ error }) => !error)
-        .catch(() => false)
+    ? (async () => {
+        try {
+          const p1 = supabase
+            .from('orders')
+            .upsert([{ id: cleanOrder.id, data: cleanOrder, updated_at: new Date().toISOString() }]);
+
+          const p2 = (async () => {
+            const res = await supabase.from('store_settings').select('*').eq('id', 'orders_data').maybeSingle();
+            const existingOrders: Order[] = res?.data?.data?.items && Array.isArray(res.data.data.items) ? res.data.data.items : [];
+            const merged = mergeOrdersList(existingOrders, [cleanOrder]);
+            await supabase.from('store_settings').upsert({
+              id: 'orders_data',
+              data: { items: merged, updatedAt: new Date().toISOString() },
+              updated_at: new Date().toISOString(),
+            });
+          })();
+
+          await Promise.allSettled([p1, p2]);
+          return true;
+        } catch (e) {
+          return false;
+        }
+      })()
     : Promise.resolve(false);
 
   let savedRemote = false;
@@ -596,7 +627,7 @@ export async function saveSingleOrder(order: Order): Promise<boolean> {
   Promise.allSettled([firestorePromise, supabasePromise]).then((results) => {
     const bgSuccess = results.some((r) => r.status === 'fulfilled' && r.value === true);
     if (!savedRemote && !bgSuccess) {
-      enqueuePendingOrders([order]);
+      enqueuePendingOrders([cleanOrder]);
     }
   });
 
@@ -807,7 +838,11 @@ export async function fetchServerData(): Promise<{ products: Product[]; orders: 
             // Also check relational products table if populated
             const resTable = await supabase.from('products').select('*');
             if (resTable?.data && resTable.data.length > 0) {
-              const tableProds = resTable.data.map((r: any) => r.data || r).filter((p: any) => p && p.id);
+              const tableProds = resTable.data.map((r: any) => {
+                if (!r || typeof r !== 'object') return null;
+                const dataObj = r.data && typeof r.data === 'object' ? r.data : r;
+                return { id: r.id || dataObj.id, ...dataObj };
+              }).filter((p: any) => p && p.id);
               sbProducts = mergeProductsList(sbProducts, tableProds);
             }
           } catch (e) {}
@@ -816,8 +851,21 @@ export async function fetchServerData(): Promise<{ products: Product[]; orders: 
     supabase
       ? (async () => {
           try {
-            const res = await supabase.from('orders').select('*');
-            if (res?.data) sbOrders = res.data.map((r: any) => r.data || r).filter((o: any) => o && o.id);
+            // First check JSONB store in store_settings (id='orders_data')
+            const resData = await supabase.from('store_settings').select('*').eq('id', 'orders_data').maybeSingle();
+            if (resData?.data?.data?.items && Array.isArray(resData.data.data.items)) {
+              sbOrders = resData.data.data.items as Order[];
+            }
+            // Also check relational orders table
+            const resTable = await supabase.from('orders').select('*');
+            if (resTable?.data && resTable.data.length > 0) {
+              const tableOrders = resTable.data.map((r: any) => {
+                if (!r || typeof r !== 'object') return null;
+                const dataObj = r.data && typeof r.data === 'object' ? r.data : r;
+                return { id: r.id || dataObj.id, ...dataObj };
+              }).filter((o: any) => o && o.id);
+              sbOrders = mergeOrdersList(sbOrders, tableOrders);
+            }
           } catch (e) {}
         })()
       : Promise.resolve(),
