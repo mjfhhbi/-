@@ -775,11 +775,16 @@ export async function deleteOrderFromFirestore(orderId: string): Promise<boolean
     localStorage.setItem(ORDERS_KEY, JSON.stringify(remaining));
   } catch (e) {}
 
-  // Delete from Supabase if configured
+  // Delete from Supabase if configured (both table and store_settings JSON)
   const supabase = getSupabaseClient();
   if (supabase) {
     try {
       await supabase.from('orders').delete().eq('id', orderId);
+      await supabase.from('store_settings').upsert({
+        id: 'orders_data',
+        data: { items: remaining, updatedAt: new Date().toISOString() },
+        updated_at: new Date().toISOString(),
+      });
     } catch (sbErr) {}
   }
 
@@ -1222,20 +1227,89 @@ export function formatToman(amount: number): string {
 }
 
 export async function checkProductStock(productId: string): Promise<Product | null> {
+  let apiProduct: Product | null = null;
   try {
-    const res = await fetch('/api/data', { cache: 'no-store' });
+    const res = await fetch('/api/data?t=' + Date.now(), { cache: 'no-store' });
     if (res.ok) {
       const data = await res.json();
       if (Array.isArray(data.products)) {
         const found = data.products.find((p: Product) => p.id === productId);
-        if (found) return found;
+        if (found) apiProduct = found;
       }
     }
   } catch (e) {}
 
   const localProducts = getStoredProducts();
-  const localFound = localProducts.find((p) => p.id === productId);
-  return localFound || null;
+  const localProduct = localProducts.find((p) => p.id === productId) || null;
+
+  if (apiProduct && localProduct) {
+    const merged = mergeProductsList([localProduct], [apiProduct])[0];
+    if (merged) {
+      const minStock = Math.min(
+        typeof apiProduct.stock === 'number' ? apiProduct.stock : 0,
+        typeof localProduct.stock === 'number' ? localProduct.stock : 0
+      );
+      return { ...merged, stock: minStock };
+    }
+  }
+
+  return apiProduct || localProduct || null;
+}
+
+export async function testTelegramNotification(settings: StoreSettings): Promise<{ success: boolean; message: string }> {
+  try {
+    const testPayload = {
+      orderId: 'TEST-ORDER-123',
+      orderCode: 'SJ-TEST',
+      customerName: 'تست سیستم تلگرام',
+      customerPhone: '09120000000',
+      customerAddress: 'تهران - تست اتصال ربات تلگرام و Cloudflare',
+      customer: {
+        fullName: 'تست سیستم تلگرام',
+        phone: '09120000000',
+        province: 'تهران',
+        city: 'تهران',
+        address: 'تست اتصال ربات تلگرام و Cloudflare Worker',
+        postalCode: '1234567890'
+      },
+      items: [
+        { id: 'test-1', name: 'عینک آفتابی استوک آزمایشی', quantity: 1, price: 1500000 }
+      ],
+      totalPrice: formatToman(1500000),
+      timestamp: new Date().toISOString(),
+      telegramToken: settings.telegramBotToken,
+      chatId: settings.telegramChatId,
+      webhookUrl: settings.telegramWebhookUrl
+    };
+
+    let webhookSuccess = false;
+    if (settings.telegramWebhookUrl) {
+      try {
+        const whRes = await fetch(settings.telegramWebhookUrl, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(testPayload),
+        });
+        webhookSuccess = whRes.ok || whRes.status < 400;
+      } catch (whErr) {
+        console.warn('Cloudflare Worker Test error:', whErr);
+      }
+    }
+
+    const res = await fetch('/api/send-order', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(testPayload),
+    });
+
+    if (res.ok || webhookSuccess) {
+      return { success: true, message: 'ارسال پیام تست به تلگرام / وب‌هوک با موفقیت انجام شد!' };
+    } else {
+      return { success: false, message: 'ارسال تست ناموفق بود. توکن ربات، چت آیدی یا آدرس Cloudflare Worker را بررسی کنید.' };
+    }
+  } catch (err: any) {
+    return { success: false, message: `خطا در تست ارسال: ${err?.message || 'مشکل در شبکه'}` };
+  }
 }
 
 export async function sendTelegramOrderNotification(order: Order, settings?: StoreSettings): Promise<boolean> {

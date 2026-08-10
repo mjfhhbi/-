@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { Product, Order, StoreSettings, OrderStatus, CategoryType, CategoryItem, CouponCode } from '../types';
-import { formatToman, fileToBase64, DEMO_PRODUCTS, exportBackupData, importBackupData, DEFAULT_CATEGORIES, DEFAULT_COUPONS } from '../utils/storage';
+import { formatToman, fileToBase64, DEMO_PRODUCTS, exportBackupData, importBackupData, DEFAULT_CATEGORIES, DEFAULT_COUPONS, testTelegramNotification } from '../utils/storage';
 import { getSupabaseCredentials, SUPABASE_SQL_SCRIPT, resetSupabaseClient } from '../lib/supabase';
 import { 
   Plus, 
@@ -1597,9 +1597,23 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                 />
               </div>
             </div>
-            <p className="text-[11px] text-zinc-400 leading-relaxed">
-              با وارد کردن توکن ربات و چت آیدی، سفارش‌های ثبت شده به همراه تصویر فیش واریزی و دکمه‌های شیشه‌ای «تایید» و «لغو» به گروه تلگرام شما ارسال می‌شوند.
-            </p>
+            <div className="flex flex-wrap items-center justify-between gap-2 pt-1">
+              <p className="text-[11px] text-zinc-400 leading-relaxed flex-1">
+                با وارد کردن توکن ربات و چت آیدی، سفارش‌های ثبت شده به همراه تصویر فیش واریزی و دکمه‌های شیشه‌ای «تایید» و «لغو» به گروه تلگرام یا وب‌هوک شما ارسال می‌شوند.
+              </p>
+
+              <button
+                type="button"
+                onClick={async () => {
+                  onShowToast('در حال ارسال پیام تست به تلگرام / وب‌هوک Cloudflare...');
+                  const result = await testTelegramNotification(tempSettings);
+                  onShowToast(result.message);
+                }}
+                className="bg-cyan-500/10 hover:bg-cyan-500/20 text-cyan-400 border border-cyan-500/30 px-3 py-1.5 rounded-xl text-xs font-bold flex items-center gap-1.5 transition-colors shrink-0"
+              >
+                <span>⚡ تست اتصال ربات تلگرام / Cloudflare</span>
+              </button>
+            </div>
           </div>
 
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
