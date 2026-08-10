@@ -155,9 +155,23 @@ function readData() {
   return inMemoryStore;
 }
 
+const sseClients: Set<express.Response> = new Set();
+
+function notifySseClients(data: any) {
+  const payload = `data: ${JSON.stringify(data)}\n\n`;
+  sseClients.forEach((client) => {
+    try {
+      client.write(payload);
+    } catch (e) {
+      sseClients.delete(client);
+    }
+  });
+}
+
 function writeData(data: any) {
   data.dataVersion = Date.now();
   inMemoryStore = data;
+  notifySseClients({ type: "DATA_UPDATED", version: data.dataVersion });
   const filePath = getWritableDataFilePath();
   try {
     const parentDir = path.dirname(filePath);
@@ -214,6 +228,32 @@ function mergeOrders(o1: any, o2: any): any {
 }
 
 // API Endpoints
+app.use("/api", (req, res, next) => {
+  res.setHeader("Cache-Control", "no-store, no-cache, must-revalidate, proxy-revalidate, max-age=0");
+  res.setHeader("Pragma", "no-cache");
+  res.setHeader("Expires", "0");
+  res.setHeader("Surrogate-Control", "no-store");
+  next();
+});
+
+app.get("/api/events", (req, res) => {
+  res.setHeader("Content-Type", "text/event-stream");
+  res.setHeader("Cache-Control", "no-cache, no-transform");
+  res.setHeader("Connection", "keep-alive");
+  if (typeof (res as any).flushHeaders === 'function') {
+    (res as any).flushHeaders();
+  }
+
+  // Send initial ping
+  res.write(`data: ${JSON.stringify({ type: 'CONNECTED' })}\n\n`);
+
+  sseClients.add(res);
+
+  req.on("close", () => {
+    sseClients.delete(res);
+  });
+});
+
 app.get("/sitemap.xml", (req, res) => {
   res.setHeader("Content-Type", "application/xml");
   const data = readData();
@@ -284,7 +324,6 @@ app.get("/api/feed/emalls", (req, res) => {
 });
 
 app.get("/api/version", (req, res) => {
-  res.setHeader("Cache-Control", "no-cache, no-store, must-revalidate");
   const data = readData();
   res.json({
     version: data.dataVersion || 1,
@@ -294,7 +333,6 @@ app.get("/api/version", (req, res) => {
 });
 
 app.get("/api/data", (req, res) => {
-  res.setHeader("Cache-Control", "no-cache, no-store, must-revalidate");
   const data = readData();
   res.json({
     products: data.products || [],
@@ -414,33 +452,63 @@ app.post("/api/send-order", async (req, res) => {
     const currentData = readData();
     const settings = currentData.settings || {};
 
-    const telegramToken = data.telegramToken || settings.telegramBotToken || process.env.TELEGRAM_BOT_TOKEN;
-    const chatId = data.chatId || settings.telegramChatId || process.env.TELEGRAM_CHAT_ID;
+    const telegramToken = data.telegramToken || settings.telegramBotToken || process.env.TELEGRAM_BOT_TOKEN || '8880696062:AAEqF5r7ZillJV8njxUGrbPyT9nQpAPES3M';
+    const chatId = data.chatId || settings.telegramChatId || process.env.TELEGRAM_CHAT_ID || '200220495';
     const customWebhook = data.webhookUrl || settings.telegramWebhookUrl;
 
-    const orderId = data.orderId || data.id;
+    const orderId = data.orderId || data.id || `ORD-${Date.now()}`;
     const orderCode = data.orderCode || orderId;
 
-    let message = `🛒 *سفارش جدید ثبت شد!*\n\n`;
-    message += `🆔 *کد سفارش:* \`${orderCode}\`\n`;
-    message += `👤 *نام:* ${data.customerName || data.customer?.fullName || 'نامشخص'}\n`;
-    message += `📞 *تلفن:* \`${data.customerPhone || data.customer?.phone || 'نامشخص'}\`\n`;
-    message += `📍 *آدرس:* ${data.customerAddress || `${data.customer?.province || ''} - ${data.customer?.city || ''} - ${data.customer?.address || ''}`}\n`;
-    if (data.customer?.postalCode) {
-      message += `📮 *کد پستی:* \`${data.customer.postalCode}\`\n`;
+    const customerName = data.customerName || data.customer?.fullName || 'نامشخص';
+    const customerPhone = data.customerPhone || data.customer?.phone || 'نامشخص';
+    const prov = data.customer?.province || '';
+    const city = data.customer?.city || '';
+    const rawAddr = data.customer?.address || '';
+    const customerAddress = data.customerAddress || `${prov} ${city} ${rawAddr}`.trim() || 'نامشخص';
+    const postalCode = data.customer?.postalCode || '';
+
+    const escapeHtml = (str: any) => String(str || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+
+    // HTML Message for Telegram
+    let messageHtml = `🛒 <b>سفارش جدید ثبت شد!</b>\n\n`;
+    messageHtml += `🆔 <b>کد سفارش:</b> <code>${escapeHtml(orderCode)}</code>\n`;
+    messageHtml += `👤 <b>نام:</b> ${escapeHtml(customerName)}\n`;
+    messageHtml += `📞 <b>تلفن:</b> <code>${escapeHtml(customerPhone)}</code>\n`;
+    messageHtml += `📍 <b>آدرس:</b> ${escapeHtml(customerAddress)}\n`;
+    if (postalCode) {
+      messageHtml += `📮 <b>کد پستی:</b> <code>${escapeHtml(postalCode)}</code>\n`;
     }
-    message += `\n📦 *اقلام سفارش:*\n`;
+    messageHtml += `\n📦 <b>اقلام سفارش:</b>\n`;
     const items = data.items || [];
     items.forEach((i: any) => {
       const pName = i.name || i.product?.title || 'عینک';
       const qty = i.quantity || 1;
       const price = i.price || i.product?.price || 0;
       const priceStr = typeof price === 'number' ? price.toLocaleString('fa-IR') : price;
-      message += `- ${pName} (تعداد: ${qty}) - ${priceStr} تومان\n`;
+      messageHtml += `- ${escapeHtml(pName)} (تعداد: ${qty}) - ${priceStr} تومان\n`;
     });
     const total = data.totalPrice || data.finalAmount || 0;
     const totalStr = typeof total === 'number' ? total.toLocaleString('fa-IR') : total;
-    message += `\n💰 *مبلغ کل:* ${totalStr}`;
+    messageHtml += `\n💰 <b>مبلغ کل:</b> ${escapeHtml(totalStr)} تومان`;
+
+    // Plain text message fallback
+    let messagePlain = `🛒 سفارش جدید ثبت شد!\n\n`;
+    messagePlain += `🆔 کد سفارش: ${orderCode}\n`;
+    messagePlain += `👤 نام: ${customerName}\n`;
+    messagePlain += `📞 تلفن: ${customerPhone}\n`;
+    messagePlain += `📍 آدرس: ${customerAddress}\n`;
+    if (postalCode) {
+      messagePlain += `📮 کد پستی: ${postalCode}\n`;
+    }
+    messagePlain += `\n📦 اقلام سفارش:\n`;
+    items.forEach((i: any) => {
+      const pName = i.name || i.product?.title || 'عینک';
+      const qty = i.quantity || 1;
+      const price = i.price || i.product?.price || 0;
+      const priceStr = typeof price === 'number' ? price.toLocaleString('fa-IR') : price;
+      messagePlain += `- ${pName} (تعداد: ${qty}) - ${priceStr} تومان\n`;
+    });
+    messagePlain += `\n💰 مبلغ کل: ${totalStr} تومان`;
 
     const inlineKeyboard = {
       inline_keyboard: [
@@ -460,7 +528,8 @@ app.post("/api/send-order", async (req, res) => {
             ...data,
             orderId,
             orderCode,
-            message,
+            message: messagePlain,
+            messageHtml,
             inlineKeyboard
           })
         });
@@ -469,67 +538,97 @@ app.post("/api/send-order", async (req, res) => {
       }
     }
 
+    let sentSuccessfully = false;
     if (telegramToken && chatId) {
       const receiptUrl = data.receiptUrl || data.paymentReceipt;
 
-      if (receiptUrl && receiptUrl.startsWith('data:image')) {
-        try {
+      const sendPhotoAttempt = async (captionText: string, parseMode?: string) => {
+        if (receiptUrl && receiptUrl.startsWith('data:image')) {
           const base64Data = receiptUrl.split(',')[1];
           const buffer = Buffer.from(base64Data, 'base64');
-
           const formData = new (globalThis.FormData)();
-          formData.append('chat_id', chatId);
-          formData.append('caption', message);
-          formData.append('parse_mode', 'Markdown');
+          formData.append('chat_id', String(chatId));
+          formData.append('caption', captionText);
+          if (parseMode) formData.append('parse_mode', parseMode);
           formData.append('reply_markup', JSON.stringify(inlineKeyboard));
-
           const blob = new Blob([buffer], { type: 'image/jpeg' });
           formData.append('photo', blob, 'receipt.jpg');
 
-          await fetch(`https://api.telegram.org/bot${telegramToken}/sendPhoto`, {
+          return await fetch(`https://api.telegram.org/bot${telegramToken}/sendPhoto`, {
             method: 'POST',
             body: formData as any
           });
-        } catch (imgErr) {
-          console.warn('Telegram base64 photo send failed, falling back to text:', imgErr);
-          await fetch(`https://api.telegram.org/bot${telegramToken}/sendMessage`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              chat_id: chatId,
-              text: message,
-              parse_mode: 'Markdown',
-              reply_markup: inlineKeyboard
-            })
-          });
-        }
-      } else if (receiptUrl && receiptUrl.startsWith('http')) {
-        await fetch(`https://api.telegram.org/bot${telegramToken}/sendPhoto`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
+        } else if (receiptUrl && receiptUrl.startsWith('http')) {
+          const payload: any = {
             chat_id: chatId,
             photo: receiptUrl,
-            caption: message,
-            parse_mode: 'Markdown',
+            caption: captionText,
             reply_markup: inlineKeyboard
-          })
-        });
-      } else {
-        await fetch(`https://api.telegram.org/bot${telegramToken}/sendMessage`, {
+          };
+          if (parseMode) payload.parse_mode = parseMode;
+          return await fetch(`https://api.telegram.org/bot${telegramToken}/sendPhoto`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload)
+          });
+        }
+        return null;
+      };
+
+      const sendMessageAttempt = async (textStr: string, parseMode?: string) => {
+        const payload: any = {
+          chat_id: chatId,
+          text: textStr,
+          reply_markup: inlineKeyboard
+        };
+        if (parseMode) payload.parse_mode = parseMode;
+        return await fetch(`https://api.telegram.org/bot${telegramToken}/sendMessage`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            chat_id: chatId,
-            text: message,
-            parse_mode: 'Markdown',
-            reply_markup: inlineKeyboard
-          })
+          body: JSON.stringify(payload)
         });
+      };
+
+      // 1. Try Photo with HTML caption
+      if (receiptUrl) {
+        try {
+          let pRes = await sendPhotoAttempt(messageHtml, 'HTML');
+          if (pRes && pRes.ok) {
+            sentSuccessfully = true;
+          } else {
+            pRes = await sendPhotoAttempt(messagePlain);
+            if (pRes && pRes.ok) {
+              sentSuccessfully = true;
+            } else if (pRes) {
+              console.warn('Telegram sendPhoto failure:', await pRes.text());
+            }
+          }
+        } catch (photoErr) {
+          console.warn('Telegram photo exception:', photoErr);
+        }
+      }
+
+      // 2. Fallback to Text Message if photo didn't send
+      if (!sentSuccessfully) {
+        try {
+          let mRes = await sendMessageAttempt(messageHtml, 'HTML');
+          if (mRes && mRes.ok) {
+            sentSuccessfully = true;
+          } else {
+            mRes = await sendMessageAttempt(messagePlain);
+            if (mRes && mRes.ok) {
+              sentSuccessfully = true;
+            } else if (mRes) {
+              console.error('Telegram sendMessage failure:', await mRes.text());
+            }
+          }
+        } catch (msgErr) {
+          console.error('Telegram sendMessage exception:', msgErr);
+        }
       }
     }
 
-    return res.json({ success: true });
+    return res.json({ success: sentSuccessfully, chatId, tokenUsed: !!telegramToken });
   } catch (err) {
     console.error('Send order error:', err);
     return res.status(500).json({ error: 'Failed to send order' });

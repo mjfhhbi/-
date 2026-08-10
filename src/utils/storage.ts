@@ -55,6 +55,8 @@ export const DEFAULT_SETTINGS: StoreSettings = {
   bankName: 'بانک ملی ایران',
   accountNumber: '0102030405006',
   shebaNumber: 'IR120170000000102030405006',
+  telegramBotToken: '8880696062:AAEqF5r7ZillJV8njxUGrbPyT9nQpAPES3M',
+  telegramChatId: '200220495',
 };
 
 // Ready sample products if user requests demo items
@@ -998,14 +1000,21 @@ export function subscribeToFirestore(
             if (data && data.id) fsProds.push(data);
           }
         });
-        if (fsProds.length > 0) {
-          const localProds = getStoredProducts();
-          const mergedProds = mergeProductsList(localProds, fsProds);
-          try {
-            localStorage.setItem(PRODUCTS_KEY, JSON.stringify(mergedProds));
-          } catch (e) {}
-          onDataUpdate({ products: mergedProds });
-        }
+
+        const deletedIds = getDeletedProductIds();
+        const fsProdIds = new Set(fsProds.map((p) => p.id));
+        const localProds = getStoredProducts();
+
+        // If snapshot has loaded items, any local product missing from Firestore snapshot was deleted on another device
+        const filteredLocal = fsProds.length > 0
+          ? localProds.filter((p) => fsProdIds.has(p.id) && !deletedIds.has(p.id))
+          : localProds.filter((p) => !deletedIds.has(p.id));
+
+        const mergedProds = mergeProductsList(filteredLocal, fsProds);
+        try {
+          localStorage.setItem(PRODUCTS_KEY, JSON.stringify(mergedProds));
+        } catch (e) {}
+        onDataUpdate({ products: mergedProds });
       },
       (err) => {
         console.warn('Firestore products snapshot notice:', err);
@@ -1026,19 +1035,23 @@ export function subscribeToFirestore(
             if (data && data.id) fsOrds.push(data);
           }
         });
-        if (fsOrds.length > 0) {
-          const localOrds = getStoredOrders();
-          const localIds = new Set(localOrds.map((o) => o.id));
-          
-          // Detect brand new incoming orders from other devices
-          const newIncomingOrders = fsOrds.filter((o) => !localIds.has(o.id));
 
-          const mergedOrds = mergeOrdersList(localOrds, fsOrds);
-          try {
-            localStorage.setItem(ORDERS_KEY, JSON.stringify(mergedOrds));
-          } catch (e) {}
-          onDataUpdate({ orders: mergedOrds, newOrders: newIncomingOrders });
-        }
+        const deletedIds = getDeletedOrderIds();
+        const fsOrderIds = new Set(fsOrds.map((o) => o.id));
+        const localOrds = getStoredOrders();
+        const localIds = new Set(localOrds.map((o) => o.id));
+
+        const newIncomingOrders = fsOrds.filter((o) => !localIds.has(o.id) && !deletedIds.has(o.id));
+
+        const filteredLocal = fsOrds.length > 0
+          ? localOrds.filter((o) => fsOrderIds.has(o.id) && !deletedIds.has(o.id))
+          : localOrds.filter((o) => !deletedIds.has(o.id));
+
+        const mergedOrds = mergeOrdersList(filteredLocal, fsOrds);
+        try {
+          localStorage.setItem(ORDERS_KEY, JSON.stringify(mergedOrds));
+        } catch (e) {}
+        onDataUpdate({ orders: mergedOrds, newOrders: newIncomingOrders });
       },
       (err) => {
         console.warn('Firestore orders snapshot notice:', err);
@@ -1114,8 +1127,25 @@ export function subscribeToFirestore(
     }
   };
 
+  // EventSource SSE real-time stream connection for instant sub-10ms server push
+  let eventSource: EventSource | null = null;
+  if (typeof window !== 'undefined' && 'EventSource' in window) {
+    try {
+      eventSource = new EventSource('/api/events');
+      eventSource.onmessage = async (e) => {
+        try {
+          const parsed = JSON.parse(e.data);
+          if (parsed && parsed.type === 'DATA_UPDATED') {
+            const fresh = await fetchServerData();
+            if (fresh) onDataUpdate(fresh);
+          }
+        } catch (err) {}
+      };
+    } catch (e) {}
+  }
+
   pollServerVersion();
-  const intervalId = setInterval(pollServerVersion, 3000);
+  const intervalId = setInterval(pollServerVersion, 1000);
 
   const handleFocusOrVisible = () => {
     pollServerVersion();
@@ -1148,6 +1178,11 @@ export function subscribeToFirestore(
 
   return () => {
     clearInterval(intervalId);
+    if (eventSource) {
+      try {
+        eventSource.close();
+      } catch (e) {}
+    }
     window.removeEventListener('focus', handleFocusOrVisible);
     document.removeEventListener('visibilitychange', handleFocusOrVisible);
     window.removeEventListener('storage', handleStorageChange);
@@ -1286,8 +1321,8 @@ export async function testTelegramNotification(settings: StoreSettings): Promise
       ],
       totalPrice: formatToman(1500000),
       timestamp: new Date().toISOString(),
-      telegramToken: settings.telegramBotToken,
-      chatId: settings.telegramChatId,
+      telegramToken: settings.telegramBotToken || '8880696062:AAEqF5r7ZillJV8njxUGrbPyT9nQpAPES3M',
+      chatId: settings.telegramChatId || '200220495',
       webhookUrl: settings.telegramWebhookUrl
     };
 
@@ -1340,8 +1375,8 @@ export async function sendTelegramOrderNotification(order: Order, settings?: Sto
       totalPrice: formatToman(order.finalAmount),
       receiptUrl: order.paymentReceipt,
       timestamp: order.createdAt || new Date().toISOString(),
-      telegramToken: settings?.telegramBotToken,
-      chatId: settings?.telegramChatId,
+      telegramToken: settings?.telegramBotToken || '8880696062:AAEqF5r7ZillJV8njxUGrbPyT9nQpAPES3M',
+      chatId: settings?.telegramChatId || '200220495',
       webhookUrl: settings?.telegramWebhookUrl,
     };
 
